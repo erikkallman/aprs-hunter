@@ -27,7 +27,7 @@ JSON line per packet, a noise summary every 10 seconds, and a boot record.
 **Success Criteria**: The sketch builds for the T3 board. On the board it
 prints a boot record and noise records.
 **Tests**: ESP32 build check. On-board check by the user.
-**Status**: In Progress
+**Status**: Complete
 
 ## Stage 3: Base computer logger
 **Goal**: A Python script that reads the board over USB serial, adds the
@@ -39,7 +39,7 @@ results in SQLite.
 - A packet record is decoded from its raw hex, including position.
 - Distance and bearing from a home position are correct.
 - Packet, noise, and boot records land in their tables.
-**Status**: Not Started
+**Status**: In Progress
 
 ## Stage 4: README
 **Goal**: Setup, flashing with Arduino IDE, running the logger, and the
