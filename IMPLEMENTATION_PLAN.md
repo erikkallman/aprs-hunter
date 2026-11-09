@@ -65,6 +65,15 @@ record format.
   reset, because the USB-serial auto-reset and the reset button both pull
   the EN pin.
 
+- Stages 6 and 7 (GPS tagging and web GUI): 123 Python tests pass (27 for
+  NMEA and position tracking, 34 for the analysis functions, 21 for the web
+  API against a real server, the rest for the logger). The page loaded with
+  no script errors in the browser with six hours of generated data (146
+  packets, five stations, digipeated and CRC-failed packets, weather, GPS
+  tags) and with a copy of the real database (noise only), at desktop and
+  phone width. The migration added the new columns to a copy of the real
+  database with all rows kept. Not yet verified: a real GPS receiver.
+
 ## Stage 5: Wearable display
 **Goal**: The OLED shows a short notification for every packet. Between
 packets it shows a calm, minimal sonar animation (animated mode) or stays
@@ -123,7 +132,7 @@ user's real database and with generated packet data.
 - Noise rows are reduced to a set number of points for charts, and
   impossible RSSI readings are flagged.
 - The HTTP server answers the API routes with JSON and serves the page.
-**Status**: In Progress
+**Status**: Complete
 
 ## Field observations (2026-11-09, first run on the board)
 

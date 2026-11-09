@@ -105,12 +105,27 @@ Set up the Python environment once:
 make venv
 ```
 
-Then start the logger. `--home` is your position in decimal degrees; it adds
-distance and bearing to every station that sends a position.
+Then start the logger. Replace `59.33,18.06` with your own position in
+decimal degrees, or leave `--home` out. `--web 8080` also serves the web GUI
+at http://localhost:8080/.
 
 ```bash
-.venv/bin/python tools/hunter_log.py --port /dev/cu.usbserial-XXXX --home 59.33,18.06
+.venv/bin/python tools/hunter_log.py --port /dev/cu.usbserial-XXXX --home 59.33,18.06 --web 8080
 ```
+
+All options:
+
+| Option | What it does |
+|---|---|
+| `--port` | The board's serial port. |
+| `--baud` | Board baud rate (default 115200). |
+| `--data-dir` | Where the archive and database go (default `logs`). |
+| `--home LAT,LON` | Fixed receiver position, used when no GPS fix is available. |
+| `--gps-port` | Serial port of an NMEA GPS, for example a USB GPS dongle. |
+| `--gps-baud` | GPS baud rate (default 9600). |
+| `--web PORT` | Also serve the web GUI on this port. |
+| `--web-host` | `0.0.0.0` lets other devices, such as your phone, open the GUI. Anyone on that network can then read the data. Default `127.0.0.1`: this computer only. |
+| `--replay FILE` | Process an archive file instead of the serial port. |
 
 Opening the port resets the board, so the first line is usually a boot line.
 The logger prints one line per packet:
@@ -130,6 +145,70 @@ To rebuild a database from an archive, for example after a logger change:
 ```bash
 .venv/bin/python tools/hunter_log.py --replay logs/2026-11-09.jsonl --data-dir reprocessed --home 59.33,18.06
 ```
+
+### Receiver position and time
+
+Each packet and noise row records where the receiver was and what time it
+was, from two clocks:
+
+- `host_utc`: the computer's clock.
+- `gps_utc`: GPS time. It is the time of the last GPS fix plus the time passed
+  since that fix. A portable computer without internet can drift; GPS time
+  does not. It stays valid for an hour after the GPS loses its fix, for
+  example indoors.
+
+The receiver position comes from a GPS fix younger than 10 seconds. Without
+one, it comes from `--home`. The source is stored in `rx_source` (`gps` or
+`fixed`), together with `rx_lat`, `rx_lon`, `rx_alt_m`, `rx_fix_utc`,
+`rx_sats`, and `rx_hdop`. Distance and bearing to each station are measured
+from the receiver position.
+
+For a GPS, use any NMEA receiver that shows up as a serial port, for example
+a u-blox USB dongle, and pass its port with `--gps-port`. The logger reads the
+RMC and GGA sentences. The archive keeps the position and GPS time of every
+record, so `--replay` reproduces them.
+
+The phone's own GPS cannot be used through the web page: phone browsers only
+give a web page your location over HTTPS, and the logger serves plain HTTP.
+
+## Web GUI
+
+Open http://localhost:8080/ after you start the logger with `--web 8080`. To
+look at old data without the board, run the GUI on its own:
+
+```bash
+.venv/bin/python tools/hunter_web.py --data-dir logs --port 8080
+```
+
+The page works offline: it uses no internet and no outside libraries. It
+updates every 5 seconds. The buttons at the top pick the time range.
+
+- **Tiles**: packet and station counts, CRC failure rate, farthest station,
+  last packet, the latest noise window, the receiver position and its
+  source, GPS time minus computer time, and the board's firmware and radio
+  settings. The dot next to the title is green while records arrive.
+- **Noise floor and packets**: the noise mean as a line, the minimum to
+  maximum as a band, every packet as a dot at its RSSI (hollow for a CRC
+  failure), and ticks for impossible -164 dBm readings, which are left out
+  of the band.
+- **Stations by bearing and distance**: a compass plot around the receiver.
+  Hollow dots were only heard via a digipeater.
+- **Signal against distance**: RSSI against the distance to each station.
+  Hollow dots came via a digipeater, so their RSSI belongs to the
+  digipeater, not the station.
+- **SNR**: a histogram with the lowest SNR the radio can decode at the
+  current spreading factor (-20 dB at SF12).
+- **Packets per hour**, with CRC failures in red.
+- **Frequency error per station**: each transmitter's crystal has its own
+  offset, so a steady value tells transmitters apart.
+- **Stations table**, sortable: counts, last heard, RSSI and SNR ranges,
+  link margin, frequency error with spread, distance, bearing, and how the
+  station was heard (direct or via which digipeater).
+- **Packets table**: click a row for every detail of that packet: signal,
+  link margin, decoded IRQ flags and modem status, the nearest noise window,
+  the decoded APRS fields and weather, the receiver position, both clocks,
+  the board uptime and firmware, and a hex dump of the raw bytes.
+- **Boots and errors**.
 
 ## Analyse the data
 
@@ -226,21 +305,28 @@ defaults of CA2RXU's LoRa_APRS_iGate firmware. To listen elsewhere, change the
 make test
 ```
 
-This runs the C++ tests on your computer, and the Python tests for the
-logger. The C++ tests cover the frame parser, the record format, and the
-display logic (screen choice, sonar geometry, station table, double reset).
-The drawing code itself needs the board. The first run creates `.venv`.
+This runs the C++ tests on your computer, and the Python tests. The C++ tests
+cover the frame parser, the record format, and the display logic (screen
+choice, sonar geometry, station table, double reset). The drawing code
+itself needs the board. The Python tests cover the logger, NMEA parsing and
+position tracking, the analysis functions, and the web server's API with a
+real server on a free port. The first run creates `.venv`.
 
 ## Limits
 
-- The board only knows its uptime. Real time comes from the computer.
+- The board only knows its uptime. Real time comes from the computer or a
+  GPS on the computer.
+- The GPS support is tested with recorded NMEA sentences, not yet with a GPS
+  receiver.
+- Noise windows sometimes report a minimum of -164 dBm. That is the radio's
+  RSSI register reading 0, which is below thermal noise, so it is a read
+  glitch. The GUI flags these readings and leaves them out of the noise band.
 - The sender's CrcOnPayload flag is not logged, so a packet sent without a
   CRC would show `crc_ok` true. LoRa APRS senders use a CRC.
 - One radio listens on one frequency and one set of settings at a time.
 
 `IMPLEMENTATION_PLAN.md` holds the design decisions and the plan for the
-next stages: SD card logging and battery level for portable use, GPS, and
-deeper analysis.
+next stages, such as SD card logging and battery level for portable use.
 
 ## License and responsible use
 
