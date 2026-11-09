@@ -334,6 +334,10 @@ def main(argv=None) -> int:
                              "59.33,18.06; used when no GPS fix is available")
     parser.add_argument("--gps-port", help="serial port of an NMEA GPS, for example /dev/cu.usbmodem-XXXX")
     parser.add_argument("--gps-baud", type=int, default=9600)
+    parser.add_argument("--web", type=int, metavar="PORT",
+                        help="also serve the web GUI on this port, for example 8080")
+    parser.add_argument("--web-host", default="127.0.0.1",
+                        help="0.0.0.0 lets other devices, such as your phone, open the GUI (default: 127.0.0.1)")
     args = parser.parse_args(argv)
 
     data_dir = pathlib.Path(args.data_dir)
@@ -356,6 +360,12 @@ def main(argv=None) -> int:
 
     if args.gps_port:
         gps.GpsSerialReader(args.gps_port, args.gps_baud, positions).start()
+    if args.web:
+        import hunter_web  # only needed for the GUI
+
+        server = hunter_web.make_server(data_dir / "hunter.sqlite", args.web_host, args.web)
+        hunter_web.start_in_background(server)
+        print("Web GUI on {}".format(hunter_web.server_url(server)), flush=True)
 
     log = HunterLog(conn, archive_dir=data_dir, positions=positions)
     # Opening the port resets the ESP32, so the first record is usually a boot record.

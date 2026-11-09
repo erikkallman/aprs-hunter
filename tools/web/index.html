@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>APRS hunter</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span id="live" class="dot" title="No data yet"></span>
+    <span>APRS hunter</span>
+  </div>
+  <nav id="range" class="range" aria-label="Time range">
+    <button type="button" data-hours="1">1 h</button>
+    <button type="button" data-hours="6">6 h</button>
+    <button type="button" data-hours="24" class="on">24 h</button>
+    <button type="button" data-hours="168">7 d</button>
+    <button type="button" data-hours="0">All</button>
+  </nav>
+</header>
+<p id="status" class="status">Loading data…</p>
+
+<main>
+  <section id="tiles" class="tiles" aria-label="Summary"></section>
+
+  <section class="charts">
+    <figure class="card span-2">
+      <figcaption>Noise floor and packets
+        <span class="hint">band: noise min to max · line: mean · dots: packets (hollow = CRC fail) · ticks: glitch readings</span>
+      </figcaption>
+      <div id="chart-noise" class="chart"></div>
+    </figure>
+    <figure class="card">
+      <figcaption>Stations by bearing and distance <span class="hint">from the receiver</span></figcaption>
+      <div id="chart-compass" class="chart"></div>
+    </figure>
+    <figure class="card">
+      <figcaption>Signal against distance <span class="hint">filled = direct · hollow = via digipeater</span></figcaption>
+      <div id="chart-distance" class="chart"></div>
+    </figure>
+    <figure class="card">
+      <figcaption>SNR <span class="hint">dashed: lowest SNR the radio decodes</span></figcaption>
+      <div id="chart-snr" class="chart"></div>
+    </figure>
+    <figure class="card">
+      <figcaption>Packets per hour <span class="hint">red: CRC fail</span></figcaption>
+      <div id="chart-hourly" class="chart"></div>
+    </figure>
+    <figure class="card">
+      <figcaption>Frequency error per station <span class="hint">dots: packets · bar: mean ± 1 sd</span></figcaption>
+      <div id="chart-ferr" class="chart"></div>
+    </figure>
+  </section>
+
+  <section class="card">
+    <h2>Stations</h2>
+    <div class="table-wrap"><table id="stations"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Packets <span class="hint">click a row for every detail</span></h2>
+    <div class="table-wrap"><table id="packets"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Boots and errors</h2>
+    <div id="events" class="events"></div>
+  </section>
+</main>
+
+<aside id="detail" class="detail" hidden aria-label="Packet detail">
+  <div class="detail-head">
+    <h2 id="detail-title">Packet</h2>
+    <button type="button" id="detail-close" aria-label="Close">Close</button>
+  </div>
+  <div id="detail-body"></div>
+</aside>
+
+<script src="app.js"></script>
+</body>
+</html>
