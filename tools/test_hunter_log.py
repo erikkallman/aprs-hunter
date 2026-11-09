@@ -1,5 +1,8 @@
 """Tests for hunter_log. Run with: make test-tools"""
 
+import argparse
+import contextlib
+import io
 import json
 import pathlib
 import sqlite3
@@ -89,6 +92,29 @@ class DistanceBearingTests(unittest.TestCase):
 
     def test_parse_home(self):
         self.assertEqual(hl.parse_home("59.0, 18.5"), (59.0, 18.5))
+
+    def test_parse_home_rejects_text(self):
+        with self.assertRaisesRegex(argparse.ArgumentTypeError, "for example 59.33,18.06"):
+            hl.parse_home("LAT,LON")
+
+    def test_parse_home_rejects_one_number(self):
+        with self.assertRaises(argparse.ArgumentTypeError):
+            hl.parse_home("59.33")
+
+    def test_parse_home_rejects_latitude_out_of_range(self):
+        with self.assertRaisesRegex(argparse.ArgumentTypeError, "latitude"):
+            hl.parse_home("95.0,18.0")
+
+    def test_parse_home_rejects_longitude_out_of_range(self):
+        with self.assertRaisesRegex(argparse.ArgumentTypeError, "longitude"):
+            hl.parse_home("59.0,190.0")
+
+    def test_bad_home_stops_with_a_usage_error(self):
+        # argparse exits with status 2 and prints the message instead of a traceback.
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as stop:
+                hl.main(["--replay", "unused.jsonl", "--home", "LAT,LON"])
+        self.assertEqual(stop.exception.code, 2)
 
 
 class HunterLogTests(unittest.TestCase):

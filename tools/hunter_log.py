@@ -130,8 +130,24 @@ def distance_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> Tupl
 
 
 def parse_home(text: str) -> Tuple[float, float]:
-    """Parse "lat,lon" in decimal degrees."""
-    lat, lon = (float(part) for part in text.split(","))
+    """Parse "lat,lon" in decimal degrees, for example "59.33,18.06".
+
+    Raises argparse.ArgumentTypeError with a readable message, so --home can
+    use it as its type and argparse reports bad input as a usage error.
+    """
+    parts = text.split(",")
+    try:
+        if len(parts) != 2:
+            raise ValueError
+        lat, lon = float(parts[0]), float(parts[1])
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "expected your position as latitude,longitude in decimal degrees, "
+            "for example 59.33,18.06; got '{}'".format(text)) from None
+    if not -90.0 <= lat <= 90.0:
+        raise argparse.ArgumentTypeError("latitude {} is outside -90 to 90".format(lat))
+    if not -180.0 <= lon <= 180.0:
+        raise argparse.ArgumentTypeError("longitude {} is outside -180 to 180".format(lon))
     return lat, lon
 
 
@@ -268,13 +284,15 @@ def main(argv=None) -> int:
     source.add_argument("--replay", help="process an archived .jsonl file instead of the serial port")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--data-dir", default="logs", help="where the archive and database go (default: logs)")
-    parser.add_argument("--home", help="your position as lat,lon in decimal degrees, for distance and bearing")
+    parser.add_argument("--home", type=parse_home,
+                        help="your position as latitude,longitude in decimal degrees, for example "
+                             "59.33,18.06; adds distance and bearing to stations")
     args = parser.parse_args(argv)
 
     data_dir = pathlib.Path(args.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     conn = open_db(data_dir / "hunter.sqlite")
-    home = parse_home(args.home) if args.home else None
+    home = args.home
 
     if args.replay:
         log = HunterLog(conn, archive_dir=None, home=home)
