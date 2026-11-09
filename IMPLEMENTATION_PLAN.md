@@ -92,6 +92,54 @@ on the board both modes and both toggles work.
   mode changes.
 **Status**: In Progress
 
+## Stage 6: Receiver position and GPS time tagging
+**Goal**: Every stored packet and noise summary carries the receiver's
+position and, when a GPS is attached, a GPS-based UTC time, alongside the
+computer's own clock.
+**Success Criteria**: Unit tests pass. An existing database gains the new
+columns without losing data.
+**Tests**:
+- NMEA RMC and GGA sentences parse into time, position, altitude,
+  satellites, and HDOP; bad checksums and void fixes are rejected.
+- The position tracker gives the GPS fix while it is fresh, the fixed home
+  position otherwise, and nothing when it has neither.
+- GPS time at a packet is the fix time plus the time passed since the fix.
+- Packets and noise rows store the receiver position, its source, and the
+  GPS time; distance and bearing use the receiver position.
+- Opening an old database adds the missing columns.
+**Status**: Complete
+
+## Stage 7: Web GUI
+**Goal**: A minimal, offline web page that shows the live feed and analyses
+everything in the database.
+**Success Criteria**: API tests pass; the page loads and draws with the
+user's real database and with generated packet data.
+**Tests**:
+- SX127x IRQ flags and modem status decode into named flags.
+- Link margin is SNR minus the demodulator floor for the spreading factor.
+- A path with a `*` marks a packet as heard through a digipeater.
+- Station statistics: counts, CRC failures, RSSI and SNR ranges, and the
+  mean and standard deviation of the frequency error.
+- Noise rows are reduced to a set number of points for charts, and
+  impossible RSSI readings are flagged.
+- The HTTP server answers the API routes with JSON and serves the page.
+**Status**: In Progress
+
+## Field observations (2026-11-09, first run on the board)
+
+- 4 boots and 2 double-reset mode switches worked as designed.
+- No packets yet in the first 8 minutes.
+- Noise mean about -102 dBm with the board next to the computer.
+- About once a minute a noise window has a minimum of -164 dBm, which is
+  the RSSI register reading 0. That is below thermal noise (about -117 dBm
+  at 125 kHz with the SX1278 noise figure), so it is almost certainly a read
+  glitch. The window minimum is therefore unreliable; the GUI plots the mean
+  and flags these readings.
+- Some windows peak at -37 dBm, a very strong signal: likely a nearby
+  433 MHz device or local interference.
+- Windows hold 93-94 samples instead of 100, because screen drawing delays
+  the 100 ms sampling.
+
 ## Later stages (not planned in detail yet)
 
 - Portable: SD card logging, battery level, lower CPU clock in notify-only
@@ -152,6 +200,28 @@ on the board both modes and both toggles work.
   contrast is set to 0x40, and `DISPLAY_ROTATION` 2 flips the picture.
 - **Adafruit SSD1306 and Adafruit GFX** for drawing: both install from the
   Arduino Library Manager and cover lines, circles, and text.
+- **GPS sources: fixed position and NMEA serial.** `--home` gives a fixed
+  position. `--gps-port` reads a serial NMEA GPS (for example a USB dongle)
+  with pyserial, which the logger already uses. gpsd waits for the choice of
+  companion computer. Browser geolocation from the web page was rejected:
+  phone browsers only allow it on HTTPS or localhost, and a field server
+  serves plain HTTP.
+- **Two clocks per record.** `host_utc` is the computer's clock. `gps_utc`
+  is the last GPS fix time plus the time passed since that fix, taken from a
+  monotonic clock. A portable computer without network time can drift; GPS
+  time does not.
+- **Web GUI from the Python standard library.** `http.server` plus static
+  HTML, CSS, and JavaScript, with charts drawn as SVG. No framework, no CDN,
+  no map tiles: it must work offline in the field. A small JSON API reads
+  the SQLite database; the page polls it every few seconds. The logger can
+  run the server in the same process (`--web`), or `hunter_web.py` runs it
+  alone for old data.
+- **SQLite in WAL mode** so the web server can read while the logger writes.
+- **The station plot is polar**, by bearing and distance from the receiver,
+  instead of a map: it needs no tiles and fits the sonar look.
+- **Digipeated packets are marked.** Their RSSI and SNR belong to the last
+  digipeater, not to the source station, so signal-against-distance analysis
+  must not mix them with direct packets.
 - **Arduino IDE for building and flashing**, as the user prefers. I check
   builds with PlatformIO from a copy outside the repo; no PlatformIO files
   are part of the repo.

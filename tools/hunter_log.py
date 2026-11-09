@@ -5,9 +5,12 @@ The board prints one JSON record per line. This script:
   - appends every record to a daily JSON Lines archive (<data-dir>/YYYY-MM-DD.jsonl),
   - decodes APRS packets from their raw bytes with aprslib,
   - stores packets, noise summaries, boots, and errors in SQLite (<data-dir>/hunter.sqlite),
-  - prints one line per packet, boot, and error.
+  - tags each packet and noise summary with the receiver position and GPS time,
+  - prints one line per packet, boot, and error,
+  - optionally serves the web GUI (--web).
 
-Live:    python tools/hunter_log.py --port /dev/cu.usbserial-XXXX --home 59.33,18.06
+Live:    python tools/hunter_log.py --port /dev/cu.usbserial-XXXX --home 59.33,18.06 --web 8080
+With GPS: add --gps-port /dev/cu.usbmodem-XXXX (an NMEA GPS, 9600 baud by default)
 Replay:  python tools/hunter_log.py --replay logs/2026-11-09.jsonl --data-dir reprocessed
 """
 
@@ -21,6 +24,8 @@ import sys
 from typing import Optional, Tuple
 
 import aprslib
+
+import gps
 
 LORA_APRS_PREFIX = bytes([0x3C, 0xFF, 0x01])
 EARTH_RADIUS_KM = 6371.0088
@@ -55,6 +60,15 @@ CREATE TABLE IF NOT EXISTS errors (
     host_utc TEXT, uptime_ms INTEGER, step TEXT, code INTEGER
 );
 """
+
+# Receiver position and GPS time, added to packets and noise after the first
+# release. open_db adds them to databases created before that.
+RECEIVER_COLUMNS = [
+    ("gps_utc", "TEXT"),
+    ("rx_lat", "REAL"), ("rx_lon", "REAL"), ("rx_alt_m", "REAL"),
+    ("rx_source", "TEXT"), ("rx_fix_utc", "TEXT"), ("rx_sats", "INTEGER"), ("rx_hdop", "REAL"),
+]
+TAGGED_TABLES = ("packets", "noise")
 
 
 def utc_now() -> str:
@@ -152,38 +166,65 @@ def parse_home(text: str) -> Tuple[float, float]:
 
 
 def open_db(path) -> sqlite3.Connection:
+    """Open or create the database, and add columns that older versions lack."""
     conn = sqlite3.connect(str(path))
+    conn.execute("PRAGMA journal_mode=WAL")  # the web GUI reads while the logger writes
     conn.executescript(SCHEMA)
+    for table in TAGGED_TABLES:
+        existing = {row[1] for row in conn.execute("PRAGMA table_info({})".format(table))}
+        for column, column_type in RECEIVER_COLUMNS:
+            if column not in existing:
+                conn.execute("ALTER TABLE {} ADD COLUMN {} {}".format(table, column, column_type))
+    conn.commit()
     return conn
+
+
+def receiver_columns(tag: dict) -> dict:
+    """Database columns for a receiver tag from PositionTracker.tag()."""
+    receiver = tag.get("receiver") or {}
+    return {
+        "gps_utc": tag.get("gps_utc"),
+        "rx_lat": receiver.get("lat"), "rx_lon": receiver.get("lon"), "rx_alt_m": receiver.get("alt_m"),
+        "rx_source": receiver.get("source"), "rx_fix_utc": receiver.get("fix_utc"),
+        "rx_sats": receiver.get("sats"), "rx_hdop": receiver.get("hdop"),
+    }
 
 
 class HunterLog:
     """Archive, decode, and store the records of one serial stream."""
 
     def __init__(self, conn: sqlite3.Connection, archive_dir: Optional[pathlib.Path] = None,
-                 home: Optional[Tuple[float, float]] = None):
+                 positions: Optional[gps.PositionTracker] = None):
         self.conn = conn
         self.archive_dir = archive_dir
-        self.home = home
+        self.positions = positions
         self.boot_id = None  # id of the last boot record seen; links later records to it
 
     def handle_line(self, line: str, host_utc: str) -> Optional[str]:
         """Process one serial line. Returns a summary to print, or None.
 
-        A line replayed from an archive keeps the host_utc it was archived with.
+        A line replayed from an archive keeps the host_utc, receiver position,
+        and GPS time it was archived with.
         """
         record = parse_line(line)
         if record is None:
             return None
         record_utc = record.pop("host_utc", None) or host_utc
+        if "receiver" in record or "gps_utc" in record:
+            tag = {"receiver": record.pop("receiver", None), "gps_utc": record.pop("gps_utc", None)}
+        elif self.positions is not None:
+            tag = self.positions.tag()
+        else:
+            tag = {"receiver": None, "gps_utc": None}
+
         if self.archive_dir is not None:
-            self._archive(record, record_utc)
+            self._archive(record, record_utc, tag)
 
         kind = record["type"]
         if kind == "rx":
-            return self._store_packet(record, record_utc)
+            return self._store_packet(record, record_utc, tag)
         if kind == "noise":
-            self._store_noise(record, record_utc)
+            self._store_noise(record, record_utc, tag)
             return None
         if kind == "boot":
             return self._store_boot(record, record_utc)
@@ -191,20 +232,21 @@ class HunterLog:
             return self._store_error(record, record_utc)
         return None
 
-    def _archive(self, record: dict, host_utc: str) -> None:
+    def _archive(self, record: dict, host_utc: str, tag: dict) -> None:
         path = self.archive_dir / "{}.jsonl".format(host_utc[:10])
         with open(path, "a", encoding="utf-8") as archive:
-            archive.write(json.dumps({"host_utc": host_utc, **record}) + "\n")
+            archive.write(json.dumps({"host_utc": host_utc, **tag, **record}) + "\n")
 
-    def _store_packet(self, record: dict, host_utc: str) -> str:
+    def _store_packet(self, record: dict, host_utc: str, tag: dict) -> str:
         decoded = decode_aprs(record.get("raw_hex", ""))
         freq_hz = record.get("freq_hz")
         freq_err = record.get("freq_err_hz")
         ppm = freq_err / freq_hz * 1e6 if freq_hz and freq_err is not None else None
 
+        receiver = tag.get("receiver")
         distance = bearing = None
-        if self.home and decoded.get("latitude") is not None and decoded.get("longitude") is not None:
-            distance, bearing = distance_bearing(self.home[0], self.home[1],
+        if receiver and decoded.get("latitude") is not None and decoded.get("longitude") is not None:
+            distance, bearing = distance_bearing(receiver["lat"], receiver["lon"],
                                                  decoded["latitude"], decoded["longitude"])
 
         weather = decoded.get("weather")
@@ -226,16 +268,19 @@ class HunterLog:
             "distance_km": distance, "bearing_deg": bearing,
             "decode_error": decoded.get("decode_error"),
         }
+        row.update(receiver_columns(tag))
         self._insert("packets", row)
         return self._packet_summary(row)
 
-    def _store_noise(self, record: dict, host_utc: str) -> None:
-        self._insert("noise", {
+    def _store_noise(self, record: dict, host_utc: str, tag: dict) -> None:
+        row = {
             "boot_id": self.boot_id, "host_utc": host_utc,
             "uptime_ms": record.get("uptime_ms"), "freq_hz": record.get("freq_hz"),
             "samples": record.get("samples"), "min_dbm": record.get("min_dbm"),
             "mean_dbm": record.get("mean_dbm"), "max_dbm": record.get("max_dbm"),
-        })
+        }
+        row.update(receiver_columns(tag))
+        self._insert("noise", row)
 
     def _store_boot(self, record: dict, host_utc: str) -> str:
         radio = record.get("radio", {})
@@ -286,16 +331,19 @@ def main(argv=None) -> int:
     parser.add_argument("--data-dir", default="logs", help="where the archive and database go (default: logs)")
     parser.add_argument("--home", type=parse_home,
                         help="your position as latitude,longitude in decimal degrees, for example "
-                             "59.33,18.06; adds distance and bearing to stations")
+                             "59.33,18.06; used when no GPS fix is available")
+    parser.add_argument("--gps-port", help="serial port of an NMEA GPS, for example /dev/cu.usbmodem-XXXX")
+    parser.add_argument("--gps-baud", type=int, default=9600)
     args = parser.parse_args(argv)
 
     data_dir = pathlib.Path(args.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     conn = open_db(data_dir / "hunter.sqlite")
-    home = args.home
+    positions = gps.PositionTracker(fixed=args.home)
 
     if args.replay:
-        log = HunterLog(conn, archive_dir=None, home=home)
+        # Archived lines carry their own receiver tags; --home fills in older lines.
+        log = HunterLog(conn, archive_dir=None, positions=positions)
         with open(args.replay, encoding="utf-8") as replay:
             for line in replay:
                 summary = log.handle_line(line, utc_now())
@@ -306,7 +354,10 @@ def main(argv=None) -> int:
 
     import serial  # only needed for live logging
 
-    log = HunterLog(conn, archive_dir=data_dir, home=home)
+    if args.gps_port:
+        gps.GpsSerialReader(args.gps_port, args.gps_baud, positions).start()
+
+    log = HunterLog(conn, archive_dir=data_dir, positions=positions)
     # Opening the port resets the ESP32, so the first record is usually a boot record.
     with serial.Serial(args.port, args.baud, timeout=1) as port:
         print("Listening on {} at {} baud. Press Ctrl+C to stop.".format(args.port, args.baud), flush=True)

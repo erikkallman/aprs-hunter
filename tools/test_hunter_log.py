@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 import unittest
 
+import gps
 import hunter_log as hl
 
 HOST_UTC = "2026-11-09T12:00:00.000Z"
@@ -122,7 +123,8 @@ class HunterLogTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.archive_dir = pathlib.Path(self.tmp.name)
         self.conn = hl.open_db(":memory:")
-        self.log = hl.HunterLog(self.conn, archive_dir=self.archive_dir, home=(59.0, 18.0))
+        self.log = hl.HunterLog(self.conn, archive_dir=self.archive_dir,
+                                positions=gps.PositionTracker(fixed=(59.0, 18.0)))
 
     def tearDown(self):
         self.conn.close()
@@ -180,6 +182,101 @@ class HunterLogTests(unittest.TestCase):
 
     def test_noise_has_no_summary(self):
         self.assertIsNone(self.log.handle_line(NOISE_LINE, HOST_UTC))
+
+
+class FakeClock:
+    def __init__(self, now=1000.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+
+# A GPS fix near Stockholm at 2026-11-09 10:15:30 UTC.
+GPS_RMC = "$GNRMC,101530.00,A,5919.8000,N,01803.6000,E,0.05,,091126,,,A*50"
+
+
+class ReceiverTaggingTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.archive_dir = pathlib.Path(self.tmp.name)
+        self.conn = hl.open_db(":memory:")
+        self.clock = FakeClock()
+        self.positions = gps.PositionTracker(fixed=(59.0, 18.0), clock=self.clock)
+        self.log = hl.HunterLog(self.conn, archive_dir=self.archive_dir, positions=self.positions)
+
+    def tearDown(self):
+        self.conn.close()
+        self.tmp.cleanup()
+
+    def scalar(self, sql):
+        return self.conn.execute(sql).fetchone()[0]
+
+    def use_gps(self):
+        self.positions.update(gps.FixBuilder().feed(GPS_RMC))
+
+    def test_packet_without_gps_uses_the_fixed_position(self):
+        self.log.handle_line(rx_line(), HOST_UTC)
+        self.assertEqual(self.scalar("SELECT rx_source FROM packets"), "fixed")
+
+    def test_packet_with_gps_stores_the_gps_position(self):
+        self.use_gps()
+        self.log.handle_line(rx_line(), HOST_UTC)
+        self.assertAlmostEqual(self.scalar("SELECT rx_lat FROM packets"), 59.33, places=5)
+
+    def test_packet_with_gps_stores_gps_time(self):
+        self.use_gps()
+        self.clock.now += 1.25
+        self.log.handle_line(rx_line(), HOST_UTC)
+        self.assertEqual(self.scalar("SELECT gps_utc FROM packets"), "2026-11-09T10:15:31.250Z")
+
+    def test_packet_without_gps_has_no_gps_time(self):
+        self.log.handle_line(rx_line(), HOST_UTC)
+        self.assertIsNone(self.scalar("SELECT gps_utc FROM packets"))
+
+    def test_distance_is_measured_from_the_gps_position(self):
+        # The tracker in the packet sits about 0.5 km from the GPS fix.
+        self.use_gps()
+        self.log.handle_line(rx_line(), HOST_UTC)
+        self.assertLess(self.scalar("SELECT distance_km FROM packets"), 1.0)
+
+    def test_noise_is_tagged_with_the_receiver_position(self):
+        self.use_gps()
+        self.log.handle_line(NOISE_LINE, HOST_UTC)
+        self.assertEqual(self.scalar("SELECT rx_source FROM noise"), "gps")
+
+    def test_archive_line_carries_the_receiver_position(self):
+        self.use_gps()
+        self.log.handle_line(rx_line(), HOST_UTC)
+        line = (self.archive_dir / "2026-11-09.jsonl").read_text().splitlines()[0]
+        self.assertEqual(json.loads(line)["receiver"]["source"], "gps")
+
+    def test_replay_uses_the_archived_receiver_position(self):
+        archived = json.dumps({
+            "host_utc": HOST_UTC, "gps_utc": "2026-11-09T10:15:31.250Z",
+            "receiver": {"lat": 60.0, "lon": 17.0, "alt_m": 12.0, "source": "gps",
+                         "fix_utc": "2026-11-09T10:15:30.000Z", "sats": 7, "hdop": 1.1},
+            **json.loads(rx_line()),
+        })
+        hl.HunterLog(self.conn, archive_dir=None).handle_line(archived, HOST_UTC)
+        self.assertEqual(self.scalar("SELECT rx_lat FROM packets"), 60.0)
+
+
+class MigrationTests(unittest.TestCase):
+    def test_old_database_gains_the_receiver_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "old.sqlite"
+            old = sqlite3.connect(str(path))
+            old.execute("CREATE TABLE packets (id INTEGER PRIMARY KEY, host_utc TEXT, src TEXT)")
+            old.execute("INSERT INTO packets (host_utc, src) VALUES ('2026-11-01T00:00:00.000Z', 'N0CALL')")
+            old.commit()
+            old.close()
+
+            conn = hl.open_db(path)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(packets)")}
+            rows = conn.execute("SELECT count(*) FROM packets").fetchone()[0]
+            conn.close()
+        self.assertEqual((("rx_lat" in columns), ("gps_utc" in columns), rows), (True, True, 1))
 
 
 if __name__ == "__main__":
