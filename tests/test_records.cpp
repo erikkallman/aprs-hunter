@@ -152,9 +152,16 @@ TEST_CASE("A boot record")
 {
     std::string expected =
         "{\"v\":1,\"type\":\"boot\",\"fw\":\"0.1.0\",\"uptime_ms\":12,\"reset_reason\":1,"
-        "\"radio_status\":0,\"radio\":{\"freq_hz\":433775000,\"bw_hz\":125000,\"sf\":12,"
-        "\"cr\":5,\"sync_word\":18,\"preamble\":8}}";
-    CHECK(formatBootRecord("0.1.0", 12, 1, aprsRadio(), 0) == expected);
+        "\"radio_status\":0,\"display\":\"animated\",\"radio\":{\"freq_hz\":433775000,"
+        "\"bw_hz\":125000,\"sf\":12,\"cr\":5,\"sync_word\":18,\"preamble\":8}}";
+    CHECK(formatBootRecord("0.1.0", 12, 1, aprsRadio(), 0, "animated") == expected);
+}
+
+TEST_CASE("A display record")
+{
+    std::string expected =
+        "{\"v\":1,\"type\":\"display\",\"uptime_ms\":5000,\"mode\":\"notify\",\"source\":\"double_reset\"}";
+    CHECK(formatDisplayRecord(5000, "notify", "double_reset") == expected);
 }
 
 TEST_CASE("An error record")

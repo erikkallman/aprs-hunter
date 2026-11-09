@@ -58,9 +58,37 @@ record format.
   replay through `hunter_log.py` into the expected database rows.
 - Not yet verified: running on the board and receiving real packets.
 
+## Stage 5: Wearable display
+**Goal**: The OLED shows a short notification for every packet. Between
+packets it shows a calm, minimal sonar animation (animated mode) or stays
+off (notify-only mode, to save battery). The user can switch modes without a
+computer, and the board remembers the mode.
+**Success Criteria**: Host tests pass; the sketch builds for the T3 board;
+on the board both modes and both toggles work.
+**Tests**:
+- Screen choice: a notification wins over the splash, the splash wins over
+  the idle screen, and notify-only mode turns the screen off when idle.
+- Serial commands `display toggle`, `display animated`, and `display notify`
+  parse, in any letter case; other text does not.
+- A one-shot timer is active only inside its window, and handles the
+  32-bit millisecond counter wrapping around.
+- The ping ring grows from 0 to its maximum radius once per period.
+- A station's sonar dot has a fixed angle for its callsign, and stronger
+  signals sit closer to the centre.
+- The station table keeps the most recently heard station first, counts
+  repeat packets, and drops the oldest station when full.
+- Double reset: the first boot is not a double reset; a second boot inside
+  the window is; the flag clears after the window and after a detection.
+- A packet summary takes the callsign from the frame, or "?" when the frame
+  is not valid LoRa APRS.
+- The boot record carries the display mode, and a display record reports
+  mode changes.
+**Status**: In Progress
+
 ## Later stages (not planned in detail yet)
 
-- Portable: OLED status screen, SD card logging, battery level.
+- Portable: SD card logging, battery level, lower CPU clock in notify-only
+  mode.
 - GPS for receiver position and time when away from the computer.
 - Analysis: per-station signal history, frequency error per transmitter,
   noise floor over time, coverage map.
@@ -99,6 +127,24 @@ record format.
   from the logged RSSI and SNR.
 - **Noise floor.** The board reads the current channel RSSI every 100 ms and
   reports count, minimum, mean, and maximum every 10 seconds.
+- **Minimal sonar for the idle screen.** The user wants to wear the board
+  and asked for a minimalistic animation. A first draft had three busy idle
+  views (noise graph, radar, station list); it was dropped for one calm
+  animation: a ping ring, one dot per station heard in the last 15 minutes,
+  and an echo when the ring passes a dot. The moving ring also spreads OLED
+  wear, which limits burn-in.
+- **Toggles: double reset and a serial command.** The T3 V1.6.1 has only a
+  reset button (no user button in LilyGO's pin map). Pressing reset twice
+  within 3 seconds switches the mode, which works away from a computer.
+  `display toggle` over serial works at the desk. A capacitive touch pin
+  was rejected because it needs soldering.
+- **Mode and double-reset flag in flash** (ESP32 Preferences). Flash keeps
+  them across the reset button and power loss. Two small writes per boot do
+  not wear the flash in any meaningful way.
+- **Low default brightness and a rotation setting** for wearing: the SSD1306
+  contrast is set to 0x40, and `DISPLAY_ROTATION` 2 flips the picture.
+- **Adafruit SSD1306 and Adafruit GFX** for drawing: both install from the
+  Arduino Library Manager and cover lines, circles, and text.
 - **Arduino IDE for building and flashing**, as the user prefers. I check
   builds with PlatformIO from a copy outside the repo; no PlatformIO files
   are part of the repo.

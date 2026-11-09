@@ -206,13 +206,14 @@ std::string formatNoiseRecord(uint32_t uptimeMs, uint32_t frequencyHz, const Noi
 }
 
 std::string formatBootRecord(const char *firmwareVersion, uint32_t uptimeMs, int resetReason,
-                             const RadioSettings &radio, int radioStatus)
+                             const RadioSettings &radio, int radioStatus, const char *displayMode)
 {
     std::string out = recordStart("boot");
     appendString(out, "fw", firmwareVersion);
     appendUnsigned(out, "uptime_ms", uptimeMs);
     appendSigned(out, "reset_reason", resetReason);
     appendSigned(out, "radio_status", radioStatus);
+    appendString(out, "display", displayMode);
     out += ",\"radio\":{\"freq_hz\":" + std::to_string(radio.frequencyHz);
     appendUnsigned(out, "bw_hz", radio.bandwidthHz);
     appendUnsigned(out, "sf", radio.spreadingFactor);
@@ -229,6 +230,16 @@ std::string formatErrorRecord(uint32_t uptimeMs, const char *where, int code)
     appendUnsigned(out, "uptime_ms", uptimeMs);
     appendString(out, "where", where);
     appendSigned(out, "code", code);
+    out += '}';
+    return out;
+}
+
+std::string formatDisplayRecord(uint32_t uptimeMs, const char *mode, const char *source)
+{
+    std::string out = recordStart("display");
+    appendUnsigned(out, "uptime_ms", uptimeMs);
+    appendString(out, "mode", mode);
+    appendString(out, "source", source);
     out += '}';
     return out;
 }

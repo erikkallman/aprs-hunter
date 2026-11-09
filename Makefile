@@ -1,6 +1,6 @@
 CXX ?= g++
 CXXFLAGS := -std=c++17 -Wall -Wextra -pedantic -I aprs_hunter
-FIRMWARE_SRC := aprs_hunter/aprs_frame.cpp aprs_hunter/records.cpp
+FIRMWARE_SRC := aprs_hunter/aprs_frame.cpp aprs_hunter/records.cpp aprs_hunter/display_logic.cpp aprs_hunter/stations.cpp aprs_hunter/double_reset.cpp
 TEST_SRC := $(wildcard tests/*.cpp)
 VENV := .venv
 

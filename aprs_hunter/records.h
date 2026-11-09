@@ -88,7 +88,15 @@ int receivedCodingRate(uint8_t modemStatus);
 std::string formatRxRecord(const RxRecord &record);
 std::string formatNoiseRecord(uint32_t uptimeMs, uint32_t frequencyHz, const NoiseStats &stats);
 std::string formatBootRecord(const char *firmwareVersion, uint32_t uptimeMs, int resetReason,
-                             const RadioSettings &radio, int radioStatus);
+                             const RadioSettings &radio, int radioStatus, const char *displayMode);
 std::string formatErrorRecord(uint32_t uptimeMs, const char *where, int code);
+
+/**
+ * A display mode change.
+ *
+ * @param mode the new mode name, "animated" or "notify"
+ * @param source what changed it, "serial" or "double_reset"
+ */
+std::string formatDisplayRecord(uint32_t uptimeMs, const char *mode, const char *source);
 
 #endif
