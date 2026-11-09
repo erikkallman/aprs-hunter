@@ -39,12 +39,12 @@ results in SQLite.
 - A packet record is decoded from its raw hex, including position.
 - Distance and bearing from a home position are correct.
 - Packet, noise, and boot records land in their tables.
-**Status**: In Progress
+**Status**: Complete
 
 ## Stage 4: README
 **Goal**: Setup, flashing with Arduino IDE, running the logger, and the
 record format.
-**Status**: Not Started
+**Status**: In Progress
 
 ## Later stages (not planned in detail yet)
 
