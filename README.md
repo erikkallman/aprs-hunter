@@ -9,8 +9,12 @@ rate, CRC result, time on air) and the raw bytes. A script on your computer
 reads these lines over USB, stores them, decodes the APRS content, and puts
 everything in a SQLite database for analysis.
 
-The board never transmits. Sending on 433.775 MHz needs an amateur radio
-license; receiving does not.
+The board is currently set up to never transmit. Sending on 433.775 MHz needs an amateur radio
+license in Sweden. Receiving does not. Be mindful of how you use the radio spectrum.
+
+The code is provided as is, under the MIT license. You are responsible for
+using it and your radio hardware lawfully. See
+[License and responsible use](#license-and-responsible-use).
 
 ## What you need
 
@@ -177,3 +181,26 @@ first run.
 `IMPLEMENTATION_PLAN.md` holds the design decisions and the plan for the
 next stages: a portable version with OLED, SD card, and battery, GPS, and
 deeper analysis.
+
+## License and responsible use
+
+This project is released under the MIT license. See `LICENSE`.
+
+The software is provided "as is", without warranty of any kind. The authors
+are not liable for any claim, damage, or other liability that comes from its
+use.
+
+You are responsible for using this software and your radio hardware correctly
+and in line with the law where you use it. That covers:
+
+- the frequencies you listen on and transmit on,
+- transmit power and duty cycle limits,
+- any license that transmitting needs,
+- any rules on recording or sharing what you receive.
+
+The firmware in this repository only receives. If you change it to transmit,
+check the rules of your national radio authority first. In Sweden that is
+Post- och telestyrelsen (PTS).
+
+`tests/doctest.h` is the doctest testing framework by Viktor Kirilov,
+included under its own MIT license. See the notice at the top of that file.
