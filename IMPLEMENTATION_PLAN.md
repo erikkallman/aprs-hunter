@@ -57,6 +57,13 @@ record format.
   ESP32 boot line, quotes in a comment, a weather report, and a CRC failure,
   replay through `hunter_log.py` into the expected database rows.
 - Not yet verified: running on the board and receiving real packets.
+- Stage 5 (display): 82 C++ tests pass, 50 of them new or changed for the
+  display logic and records. The sketch builds for the T3 with Adafruit
+  SSD1306 2.5.17 and Adafruit GFX 1.13.0, 44% of flash. Not yet verified on
+  the board: the drawing, both modes, and both toggles. Known effect:
+  opening the serial port within 3 seconds of power-on counts as a double
+  reset, because the USB-serial auto-reset and the reset button both pull
+  the EN pin.
 
 ## Stage 5: Wearable display
 **Goal**: The OLED shows a short notification for every packet. Between

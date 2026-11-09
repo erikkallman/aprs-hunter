@@ -21,8 +21,10 @@ using it and your radio hardware lawfully. See
 - A LilyGO T3 V1.6.1, 433 MHz version (SX1278), with a 433 MHz antenna.
   Attach the antenna before you power the board.
 - Arduino IDE with the ESP32 board package ("esp32 by Espressif Systems").
-- The RadioLib library, version 8.0 or newer (Library Manager: "RadioLib" by
-  Jan Gromes).
+- These libraries, from the Arduino Library Manager:
+  - "RadioLib" by Jan Gromes, version 8.0 or newer.
+  - "Adafruit SSD1306" by Adafruit. When the Library Manager offers to
+    install its dependencies (Adafruit GFX Library, Adafruit BusIO), accept.
 - Python 3.9 or newer on the computer, for the logger.
 
 ## Flash the board
@@ -37,7 +39,7 @@ using it and your radio hardware lawfully. See
    noise line every 10 seconds:
 
    ```
-   {"v":1,"type":"boot","fw":"0.1.0","uptime_ms":15,"reset_reason":1,"radio_status":0,"radio":{"freq_hz":433775000,"bw_hz":125000,"sf":12,"cr":5,"sync_word":18,"preamble":8}}
+   {"v":1,"type":"boot","fw":"0.2.0","uptime_ms":15,"reset_reason":1,"radio_status":0,"display":"animated","radio":{"freq_hz":433775000,"bw_hz":125000,"sf":12,"cr":5,"sync_word":18,"preamble":8}}
    {"v":1,"type":"noise","uptime_ms":10015,"freq_hz":433775000,"samples":100,"min_dbm":-121.00,"mean_dbm":-117.40,"max_dbm":-109.00}
    ```
 
@@ -45,6 +47,53 @@ using it and your radio hardware lawfully. See
    error code.
 
 The board LED flashes on every received packet.
+
+## The display
+
+The OLED is built to be worn: it shows little, moves slowly, and stays dim.
+
+**On every packet**, in both modes, it shows a notification for 4 seconds: a
+short burst of rings, then the callsign in large letters, the RSSI and SNR,
+and the packet number. A packet that failed the CRC check shows `CRC FAIL`,
+and a frame that is not LoRa APRS shows `?` as the callsign.
+
+**Between packets**, it depends on the mode:
+
+- **Animated** (default): a minimal sonar. A ring grows out from the centre
+  every 2.6 seconds. Every station heard in the last 15 minutes is a dot. The
+  dot's angle comes from the callsign, so a station keeps its place. Stronger
+  signals sit closer to the centre. A dot is bigger for the first minute after
+  a packet, and it lights up when the ring passes over it. The packet count
+  sits in the bottom-right corner.
+- **Notify-only**: the screen is off, to save battery. It only wakes for
+  notifications.
+
+At every start, the screen shows the current mode for 2.5 seconds.
+
+### Switching the mode
+
+- **Press reset twice within 3 seconds.** The board has no other button. The
+  board restarts on each press, and the second start switches the mode and
+  shows it on the screen.
+- **Or send a command over serial**, for example in the Arduino serial
+  monitor: `display toggle`, `display animated`, or `display notify`. The
+  board answers with a `display` record.
+
+The board saves the mode in flash, so it survives power-off.
+
+Opening the serial port also restarts the board. If you open it within 3
+seconds of powering the board on, the board counts that as a double reset and
+switches the mode. Wait a few seconds after power-on, or switch back.
+
+### Settings
+
+At the top of `aprs_hunter/aprs_hunter.ino`:
+
+- `DISPLAY_CONTRAST`: brightness from 0 to 255. The default 0x40 is dim; a
+  lower value also uses less power.
+- `DISPLAY_ROTATION`: set it to 2 to turn the picture upside down, for
+  example when you wear the board with the USB port up.
+- `NOTIFICATION_MS`: how long a notification stays on screen.
 
 ## Run the logger
 
@@ -148,11 +197,21 @@ messages, are ignored by the logger.
 ### `boot`: once at start-up
 
 Firmware version `fw`, ESP32 `reset_reason`, `radio_status` (RadioLib result
-code, 0 is success), and the `radio` settings.
+code, 0 is success), the `display` mode (`animated` or `notify`), and the
+`radio` settings.
+
+### `display`: a display mode change
+
+The new `mode`, and the `source` that changed it: `serial` or
+`double_reset`. The logger keeps these in the archive but not in the
+database.
 
 ### `error`
 
-`where` names the RadioLib call that failed, and `code` is its result code.
+`where` names the step that failed, and `code` is its result code. For radio
+steps the code is a RadioLib result code. `display.begin` means the screen
+did not answer. `serial: unknown command` means the board did not understand
+a serial command.
 
 ## Radio settings
 
@@ -167,9 +226,10 @@ defaults of CA2RXU's LoRa_APRS_iGate firmware. To listen elsewhere, change the
 make test
 ```
 
-This runs the C++ tests for the frame parser and record format on your
-computer, and the Python tests for the logger. It creates `.venv` on the
-first run.
+This runs the C++ tests on your computer, and the Python tests for the
+logger. The C++ tests cover the frame parser, the record format, and the
+display logic (screen choice, sonar geometry, station table, double reset).
+The drawing code itself needs the board. The first run creates `.venv`.
 
 ## Limits
 
@@ -179,7 +239,7 @@ first run.
 - One radio listens on one frequency and one set of settings at a time.
 
 `IMPLEMENTATION_PLAN.md` holds the design decisions and the plan for the
-next stages: a portable version with OLED, SD card, and battery, GPS, and
+next stages: SD card logging and battery level for portable use, GPS, and
 deeper analysis.
 
 ## License and responsible use
