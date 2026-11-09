@@ -44,7 +44,19 @@ results in SQLite.
 ## Stage 4: README
 **Goal**: Setup, flashing with Arduino IDE, running the logger, and the
 record format.
-**Status**: In Progress
+**Status**: Complete
+
+## Verification (2026-11-09)
+
+- Host tests: 32 C++ tests (`make test-firmware`) and 27 Python tests
+  (`make test-tools`) pass.
+- ESP32 build: the sketch compiles for the T3 board with PlatformIO,
+  espressif32 5.2.0 (Arduino core 2.0.5), `-std=gnu++17`, RadioLib 8.0.0.
+  23% of flash. Not yet built in Arduino IDE.
+- End to end on the computer: records printed by the C++ code, including an
+  ESP32 boot line, quotes in a comment, a weather report, and a CRC failure,
+  replay through `hunter_log.py` into the expected database rows.
+- Not yet verified: running on the board and receiving real packets.
 
 ## Later stages (not planned in detail yet)
 

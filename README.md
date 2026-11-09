@@ -1,0 +1,179 @@
+# APRS hunter
+
+A receive-only LoRa APRS logger for the LilyGO T3 V1.6.1 (433 MHz version,
+SX1278 radio).
+
+The board listens on 433.775 MHz and prints one JSON line for every packet it
+hears. Each line holds the signal metadata (RSSI, SNR, frequency error, coding
+rate, CRC result, time on air) and the raw bytes. A script on your computer
+reads these lines over USB, stores them, decodes the APRS content, and puts
+everything in a SQLite database for analysis.
+
+The board never transmits. Sending on 433.775 MHz needs an amateur radio
+license; receiving does not.
+
+## What you need
+
+- A LilyGO T3 V1.6.1, 433 MHz version (SX1278), with a 433 MHz antenna.
+  Attach the antenna before you power the board.
+- Arduino IDE with the ESP32 board package ("esp32 by Espressif Systems").
+- The RadioLib library, version 8.0 or newer (Library Manager: "RadioLib" by
+  Jan Gromes).
+- Python 3.9 or newer on the computer, for the logger.
+
+## Flash the board
+
+1. Open `aprs_hunter/aprs_hunter.ino` in Arduino IDE.
+2. Pick *Tools > Board > esp32 > TTGO LoRa32-OLED*, then
+   *Tools > Revision > TTGO LoRa32 V2.1 (1.6.1)*.
+3. Set *Tools > Upload Speed* to 115200. Boards with a WCH CH9102 USB chip
+   fail to upload at 921600 on macOS.
+4. Pick the port, for example `/dev/cu.usbserial-…`, and click Upload.
+5. Open the serial monitor at 115200 baud. You should see a boot line, then a
+   noise line every 10 seconds:
+
+   ```
+   {"v":1,"type":"boot","fw":"0.1.0","uptime_ms":15,"reset_reason":1,"radio_status":0,"radio":{"freq_hz":433775000,"bw_hz":125000,"sf":12,"cr":5,"sync_word":18,"preamble":8}}
+   {"v":1,"type":"noise","uptime_ms":10015,"freq_hz":433775000,"samples":100,"min_dbm":-121.00,"mean_dbm":-117.40,"max_dbm":-109.00}
+   ```
+
+   `radio_status` 0 means the radio started. Any other number is a RadioLib
+   error code.
+
+The board LED flashes on every received packet.
+
+## Run the logger
+
+Close the Arduino serial monitor first: only one program can use the port.
+
+Set up the Python environment once:
+
+```bash
+make venv
+```
+
+Then start the logger. `--home` is your position in decimal degrees; it adds
+distance and bearing to every station that sends a position.
+
+```bash
+.venv/bin/python tools/hunter_log.py --port /dev/cu.usbserial-XXXX --home 59.33,18.06
+```
+
+Opening the port resets the board, so the first line is usually a boot line.
+The logger prints one line per packet:
+
+```
+2026-11-09T12:16:21.212Z #1 N0CALL-7, -118.8 dBm, SNR -12.50 dB, freq err 2100 Hz, 37.3 km at 6 deg, [uncompressed]
+```
+
+It writes two things to `logs/`:
+
+- `YYYY-MM-DD.jsonl`: every record from the board, with the computer's UTC
+  time added as `host_utc`. This archive is the complete raw record.
+- `hunter.sqlite`: the decoded database.
+
+To rebuild a database from an archive, for example after a logger change:
+
+```bash
+.venv/bin/python tools/hunter_log.py --replay logs/2026-11-09.jsonl --data-dir reprocessed --home 59.33,18.06
+```
+
+## Analyse the data
+
+The database has four tables: `packets`, `noise`, `boots`, and `errors`.
+Every row has `host_utc`, and rows that come after a boot record link to it
+through `boot_id`. Some starting points, using the `sqlite3` tool that comes
+with macOS:
+
+```sql
+-- Stations heard, with packet count, best signal, and distance
+SELECT src, count(*) AS packets, max(rssi_dbm) AS best_rssi, max(snr_db) AS best_snr,
+       round(max(distance_km), 1) AS max_km
+FROM packets WHERE crc_ok = 1 GROUP BY src ORDER BY packets DESC;
+
+-- Frequency error per station. Each transmitter's crystal has its own
+-- offset, so a steady value helps tell transmitters apart.
+SELECT src, count(*) AS packets, round(avg(freq_err_hz)) AS mean_err_hz,
+       round(avg(freq_err_ppm), 2) AS mean_ppm
+FROM packets WHERE crc_ok = 1 GROUP BY src;
+
+-- Noise floor per hour
+SELECT substr(host_utc, 1, 13) AS hour, min(min_dbm) AS lowest,
+       round(avg(mean_dbm), 1) AS average, max(max_dbm) AS highest
+FROM noise GROUP BY hour;
+
+-- Good packets and CRC failures per day
+SELECT substr(host_utc, 1, 10) AS day, sum(crc_ok) AS good, sum(1 - crc_ok) AS crc_fail
+FROM packets GROUP BY day;
+```
+
+Run one with `sqlite3 -header -column logs/hunter.sqlite "<query>"`.
+
+## Record format
+
+The board prints one JSON object per line. `v` is the format version and
+`type` says what the line is. Lines that are not JSON, such as ESP32 boot
+messages, are ignored by the logger.
+
+### `rx`: a received packet
+
+| Field | Meaning |
+|---|---|
+| `seq` | Packet number since boot, starting at 1 |
+| `uptime_ms` | Board uptime when the radio signalled the packet |
+| `freq_hz` | Receive frequency |
+| `rssi_dbm` | Packet signal strength. RadioLib computes -164 + PktRssi, plus the SNR when the SNR is below 0 |
+| `snr_db` | Packet signal-to-noise ratio. LoRa decodes down to about -20 dB at SF12 |
+| `freq_err_hz` | Offset between the sender's frequency and ours |
+| `crc_ok` | `false` if the packet failed the CRC check. The bytes are still logged |
+| `rx_cr` | Coding rate from the received header: 5 means 4/5. `null` if unknown |
+| `irq` | SX1278 IRQ flags register, read before it is cleared |
+| `modem_stat` | SX1278 modem status register |
+| `toa_us` | Time on air for this packet length at the configured settings |
+| `len` | Packet length in bytes |
+| `raw_hex` | The received bytes, as hex. The logger decodes from this field |
+| `aprs` | Header fields split on the board: `src`, `dst`, `path`, `info`. For display only; non-ASCII bytes appear as `\u00XX` |
+| `aprs_error` | Present instead of `aprs` when the frame is not valid LoRa APRS |
+
+### `noise`: a noise floor summary, every 10 seconds
+
+`samples` readings of the channel RSSI, taken every 100 ms, with `min_dbm`,
+`mean_dbm`, and `max_dbm`. Packets received during the window raise
+`max_dbm`.
+
+### `boot`: once at start-up
+
+Firmware version `fw`, ESP32 `reset_reason`, `radio_status` (RadioLib result
+code, 0 is success), and the `radio` settings.
+
+### `error`
+
+`where` names the RadioLib call that failed, and `code` is its result code.
+
+## Radio settings
+
+The sketch uses the European LoRa APRS settings: 433.775 MHz, SF12, 125 kHz,
+coding rate 4/5, sync word `0x12`, preamble 8, CRC on. They match the
+defaults of CA2RXU's LoRa_APRS_iGate firmware. To listen elsewhere, change the
+`APRS_*` defines at the top of `aprs_hunter/aprs_hunter.ino`.
+
+## Tests
+
+```bash
+make test
+```
+
+This runs the C++ tests for the frame parser and record format on your
+computer, and the Python tests for the logger. It creates `.venv` on the
+first run.
+
+## Limits
+
+- The board only knows its uptime. Real time comes from the computer.
+- The sender's CrcOnPayload flag is not logged, so a packet sent without a
+  CRC would show `crc_ok` true. LoRa APRS senders use a CRC.
+- One radio listens on one frequency and one set of settings at a time.
+
+`IMPLEMENTATION_PLAN.md` holds the design decisions and the plan for the
+next stages: a portable version with OLED, SD card, and battery, GPS, and
+deeper analysis.
