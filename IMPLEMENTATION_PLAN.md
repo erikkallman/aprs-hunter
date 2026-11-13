@@ -148,7 +148,8 @@ no -164 dBm minimums and no -37 dBm maximums.
 - The logger stores both counts, stores NULL for older firmware, and adds
   the columns to an existing database.
 - The noise API sums both counts per chart point and per time range.
-**Status**: In Progress (code and tests done; needs a run on the board)
+**Status**: Complete (board run on 2026-11-13; read limit raised to 8 in
+firmware 0.3.1, see the 2026-11-13 observations)
 
 ## Field observations (2026-11-09, first run on the board)
 
@@ -191,6 +192,24 @@ no -164 dBm minimums and no -37 dBm maximums.
 - The basement logs had the same effect, in the hours when their floor sat
   near -100 dBm (about 10% of windows on 2026-11-09 13h and 2026-11-10 08h).
 - No packet has been received in any log so far.
+
+Firmware 0.3.0 on the board, same window, from 10:21 UTC (9 windows):
+
+- No torn values. Minimums were -103 and -105 dBm, peaks -98 to -100 dBm.
+  In the 60 windows before, minimums of -164, -132, -116, and -108 dBm and
+  peaks of -37, -69, -85, and -93 dBm were common.
+- The mean floor barely moved (-101.2 dBm before, -101.4 dBm after). The
+  torn reads spoiled the minimum and maximum, not the mean.
+- The read check made about 94 tries per window, the same as before, so
+  it does not slow the loop.
+- About 0.9 mismatches per try and 14% of samples skipped. That fits a
+  model where each pair of back-to-back reads differs with a chance of
+  about 0.5, because the floor sits on the -101/-100 dBm step. Most
+  mismatches are normal changes, not tears.
+- With that chance, a limit of n reads skips about 0.5^(n-1) of samples:
+  14% at 4 reads, 1% at 8. Firmware 0.3.1 uses 8.
+- The log has no boot record for this run. The board booted after the
+  flash, before the logger opened the port.
 
 ## Later stages (not planned in detail yet)
 
@@ -235,7 +254,9 @@ no -164 dBm minimums and no -37 dBm maximums.
 - **Noise floor.** The board reads the current channel RSSI every 100 ms and
   reports count, minimum, mean, and maximum every 10 seconds.
 - **Torn RSSI reads (2026-11-13).** A noise sample counts only when two
-  reads of the RSSI register in a row agree, with at most 4 reads. Each
+  reads of the RSSI register in a row agree, with at most 8 reads (4 in
+  firmware 0.3.0; on the board that skipped 14% of samples, see the
+  2026-11-13 observations). Each
   noise record counts the mismatches and the samples skipped, so the
   problem stays visible instead of hidden. Rejected alternatives:
   - A wider glitch limit in the analysis. The high-side fakes (-99, -97,

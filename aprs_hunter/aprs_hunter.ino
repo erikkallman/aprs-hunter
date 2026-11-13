@@ -33,7 +33,7 @@
 #include "stable_read.h"
 #include "stations.h"
 
-#define FIRMWARE_VERSION "0.3.0"
+#define FIRMWARE_VERSION "0.3.1"
 
 // LilyGO T3 V1.6.1 radio pins (same on the 433 MHz and 868 MHz versions)
 #define LORA_SCK 5
@@ -61,7 +61,11 @@
 
 #define NOISE_SAMPLE_INTERVAL_MS 100
 #define NOISE_REPORT_INTERVAL_MS 10000
-#define RSSI_MAX_READS 4 // reads per noise sample to find two that agree
+// Reads per noise sample to find two that agree. Near a step between two
+// register values about half of all back-to-back reads differ, so 4 reads
+// skipped about 14% of samples. 8 reads skip about 1% and take well under
+// a millisecond.
+#define RSSI_MAX_READS 8
 #define LED_FLASH_MS 100
 
 // Display settings
