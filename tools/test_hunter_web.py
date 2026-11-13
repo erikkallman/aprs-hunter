@@ -18,6 +18,12 @@ GLITCH_NOISE = json.dumps({
     "min_dbm": -164.0, "mean_dbm": -101.0, "max_dbm": -37.0,
 })
 
+CHECKED_NOISE = json.dumps({
+    "v": 1, "type": "noise", "uptime_ms": 40000, "freq_hz": 433775000, "samples": 93,
+    "read_mismatches": 5, "skipped_samples": 2,
+    "min_dbm": -108.0, "mean_dbm": -101.0, "max_dbm": -99.0,
+})
+
 
 class WebServerTests(unittest.TestCase):
     @classmethod
@@ -32,6 +38,7 @@ class WebServerTests(unittest.TestCase):
             (fixtures.rx_line(seq=1), "2026-11-09T12:00:12.000Z"),
             (GLITCH_NOISE, "2026-11-09T12:00:20.000Z"),
             (fixtures.rx_line(text=fixtures.WEATHER, seq=2), "2026-11-09T12:00:25.000Z"),
+            (CHECKED_NOISE, "2026-11-09T12:00:40.000Z"),
             (fixtures.rx_line(seq=3, crc_ok=False), "2026-11-09T13:00:00.000Z"),
             (fixtures.ERROR_LINE, "2026-11-09T13:00:05.000Z"),
         ]
@@ -93,6 +100,15 @@ class WebServerTests(unittest.TestCase):
     def test_summary_counts_noise_glitches(self):
         self.assertEqual(self.get_json("/api/summary")["noise_glitches"], 1)
 
+    def test_summary_sums_noise_read_mismatches(self):
+        self.assertEqual(self.get_json("/api/summary")["noise_read_mismatches"], 5)
+
+    def test_summary_sums_noise_skipped_samples(self):
+        self.assertEqual(self.get_json("/api/summary")["noise_skipped_samples"], 2)
+
+    def test_summary_has_no_read_mismatches_without_checked_noise(self):
+        self.assertIsNone(self.get_json("/api/summary?since=2026-11-09T12:00:41.000Z")["noise_read_mismatches"])
+
     def test_summary_reports_the_receiver_source(self):
         self.assertEqual(self.get_json("/api/summary")["receiver"]["rx_source"], "fixed")
 
@@ -123,7 +139,10 @@ class WebServerTests(unittest.TestCase):
         self.assertEqual(stations["N0CALL-7"]["crc_fail"], 1)
 
     def test_noise_points_flag_glitches(self):
-        self.assertEqual([p["glitches"] for p in self.get_json("/api/noise")], [0, 1])
+        self.assertEqual([p["glitches"] for p in self.get_json("/api/noise")], [0, 1, 0])
+
+    def test_noise_points_carry_read_mismatches(self):
+        self.assertEqual([p["read_mismatches"] for p in self.get_json("/api/noise")], [None, None, 5])
 
     def test_hourly_counts(self):
         self.assertEqual(self.get_json("/api/hourly"), [

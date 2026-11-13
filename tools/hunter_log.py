@@ -68,7 +68,10 @@ RECEIVER_COLUMNS = [
     ("rx_lat", "REAL"), ("rx_lon", "REAL"), ("rx_alt_m", "REAL"),
     ("rx_source", "TEXT"), ("rx_fix_utc", "TEXT"), ("rx_sats", "INTEGER"), ("rx_hdop", "REAL"),
 ]
-TAGGED_TABLES = ("packets", "noise")
+# Counts of RSSI reads the firmware dropped, from firmware 0.3.0 on.
+READ_CHECK_COLUMNS = [("read_mismatches", "INTEGER"), ("skipped_samples", "INTEGER")]
+# Columns added after the first release, per table.
+ADDED_COLUMNS = {"packets": RECEIVER_COLUMNS, "noise": RECEIVER_COLUMNS + READ_CHECK_COLUMNS}
 
 
 def utc_now() -> str:
@@ -170,9 +173,9 @@ def open_db(path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path))
     conn.execute("PRAGMA journal_mode=WAL")  # the web GUI reads while the logger writes
     conn.executescript(SCHEMA)
-    for table in TAGGED_TABLES:
+    for table, columns in ADDED_COLUMNS.items():
         existing = {row[1] for row in conn.execute("PRAGMA table_info({})".format(table))}
-        for column, column_type in RECEIVER_COLUMNS:
+        for column, column_type in columns:
             if column not in existing:
                 conn.execute("ALTER TABLE {} ADD COLUMN {} {}".format(table, column, column_type))
     conn.commit()
@@ -278,6 +281,8 @@ class HunterLog:
             "uptime_ms": record.get("uptime_ms"), "freq_hz": record.get("freq_hz"),
             "samples": record.get("samples"), "min_dbm": record.get("min_dbm"),
             "mean_dbm": record.get("mean_dbm"), "max_dbm": record.get("max_dbm"),
+            "read_mismatches": record.get("read_mismatches"),
+            "skipped_samples": record.get("skipped_samples"),
         }
         row.update(receiver_columns(tag))
         self._insert("noise", row)

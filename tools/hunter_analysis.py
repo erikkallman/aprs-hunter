@@ -30,8 +30,12 @@ MODEM_STATUS_FLAGS = [
 # (Semtech SX1276/77/78/79 datasheet, table "Range of spreading factors").
 DEMODULATOR_FLOOR_DB = {6: -5.0, 7: -7.5, 8: -10.0, 9: -12.5, 10: -15.0, 11: -17.5, 12: -20.0}
 
-# The RSSI register reads 0 now and then, which reports as -164 dBm. Thermal
-# noise in 125 kHz is about -123 dBm, so anything this low is a read glitch.
+# Firmware before 0.3.0 kept torn RSSI reads: the register changed while the
+# board read it, so the board got the top bits of one value and the bottom
+# bits of the next. Near -100 dBm that gives readings such as -164 dBm (and
+# -37 dBm on the high side). Thermal noise in 125 kHz is about -123 dBm, so
+# anything below this limit is a torn read. The limit catches only the low
+# side; firmware 0.3.0 and later drop torn reads before they count.
 RSSI_GLITCH_BELOW_DBM = -150.0
 
 
@@ -69,12 +73,19 @@ def is_rssi_glitch(rssi_dbm: Optional[float]) -> bool:
     return rssi_dbm is not None and rssi_dbm < RSSI_GLITCH_BELOW_DBM
 
 
+def _sum_present(rows: List[dict], key: str) -> Optional[int]:
+    """Sum of a field over the rows that have it, or None if none have it."""
+    values = [r[key] for r in rows if r.get(key) is not None]
+    return sum(values) if values else None
+
+
 def downsample_noise(rows: List[dict], max_points: int) -> List[dict]:
     """Group consecutive noise rows into at most max_points points.
 
     Each point keeps the first time, the lowest valid minimum, the mean of
-    the means, the highest maximum, the total samples, and the number of
-    glitch minimums left out.
+    the means, the highest maximum, the total samples, the number of glitch
+    minimums left out, and the RSSI reads the firmware dropped (None for
+    firmware before 0.3.0).
     """
     if not rows:
         return []
@@ -92,6 +103,8 @@ def downsample_noise(rows: List[dict], max_points: int) -> List[dict]:
             "mean_dbm": round(statistics.mean(means), 2) if means else None,
             "max_dbm": max(maximums) if maximums else None,
             "glitches": sum(1 for r in bucket if is_rssi_glitch(r["min_dbm"])),
+            "read_mismatches": _sum_present(bucket, "read_mismatches"),
+            "skipped_samples": _sum_present(bucket, "skipped_samples"),
             "rx_lat": bucket[-1].get("rx_lat"),
             "rx_lon": bucket[-1].get("rx_lon"),
         })

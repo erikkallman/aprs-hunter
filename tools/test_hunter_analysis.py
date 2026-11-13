@@ -62,6 +62,27 @@ class NoiseTests(unittest.TestCase):
                  "min_dbm": -164.0 if i == 1 else -110.0, "mean_dbm": -100.0 - i,
                  "max_dbm": -90.0 + i, "rx_lat": None, "rx_lon": None} for i in range(count)]
 
+    def checked_rows(self, count):
+        """Rows from firmware 0.3.0 and later, which count dropped reads."""
+        rows = self.rows(count)
+        for i, row in enumerate(rows):
+            row["read_mismatches"] = i
+            row["skipped_samples"] = 1
+        return rows
+
+    def test_a_bucket_sums_the_read_mismatches(self):
+        self.assertEqual(ha.downsample_noise(self.checked_rows(10), 5)[1]["read_mismatches"], 5)
+
+    def test_a_bucket_sums_the_skipped_samples(self):
+        self.assertEqual(ha.downsample_noise(self.checked_rows(10), 5)[1]["skipped_samples"], 2)
+
+    def test_a_bucket_from_older_firmware_has_no_read_mismatches(self):
+        self.assertIsNone(ha.downsample_noise(self.rows(10), 5)[1]["read_mismatches"])
+
+    def test_a_bucket_with_some_older_rows_sums_the_newer_rows(self):
+        rows = self.rows(2) + self.checked_rows(2)
+        self.assertEqual(ha.downsample_noise(rows, 1)[0]["read_mismatches"], 1)
+
     def test_few_rows_are_kept(self):
         self.assertEqual(len(ha.downsample_noise(self.rows(4), 10)), 4)
 

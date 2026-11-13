@@ -195,6 +195,17 @@ function tile(label, value, sub) {
   return `<div class="tile"><div class="label">${esc(label)}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
 }
 
+// What the RSSI read check found in the range. Firmware 0.3.0 and later drop
+// torn reads; older firmware kept them, and they show as glitch windows.
+function readCheckParts(s) {
+  const counted = (n, one, many) => `${esc(n)} ${n === 1 ? one : many}`;
+  const parts = [];
+  if (s.noise_read_mismatches !== null) parts.push(counted(s.noise_read_mismatches, "RSSI read dropped", "RSSI reads dropped"));
+  if (s.noise_skipped_samples) parts.push(counted(s.noise_skipped_samples, "sample skipped", "samples skipped"));
+  if (s.noise_glitches) parts.push(counted(s.noise_glitches, "glitch window", "glitch windows") + " from firmware before 0.3.0");
+  return parts;
+}
+
 function renderTiles() {
   const s = state.data.summary;
   const failRate = s.packets ? ` (${fmt((100 * s.crc_fail) / s.packets, 0)}% fail)` : "";
@@ -212,7 +223,8 @@ function renderTiles() {
     tile("Last packet", last ? esc(age(last.host_utc)) : "–",
       last ? `${esc(last.src || "?")} · ${fmt(last.rssi_dbm)} dBm · SNR ${fmt(last.snr_db)} dB${last.crc_ok ? "" : " · CRC fail"}` : "none in this range"),
     tile("Noise now", noise ? `${fmt(noise.mean_dbm)} dBm` : "–",
-      noise ? `min ${fmt(noise.min_dbm, 0)}${noise.min_is_glitch ? " (glitch)" : ""} · max ${fmt(noise.max_dbm, 0)} · ${esc(noise.samples)} samples · ${esc(s.noise_glitches)} glitch windows in range` : "no noise records"),
+      noise ? [`min ${fmt(noise.min_dbm, 0)}${noise.min_is_glitch ? " (glitch)" : ""}`, `max ${fmt(noise.max_dbm, 0)}`,
+        `${esc(noise.samples)} samples`, ...readCheckParts(s)].join(" · ") : "no noise records"),
     tile("Receiver", rx && rx.rx_source ? esc(rx.rx_source) : "none",
       rx && rx.rx_lat !== null ? `${osmLink(rx.rx_lat, rx.rx_lon)}${rx.rx_sats ? ` · ${esc(rx.rx_sats)} sats` : ""}${rx.rx_hdop ? ` · HDOP ${fmt(rx.rx_hdop)}` : ""}` : "set --home or --gps-port"),
     tile("GPS clock", rx && rx.gps_minus_host_s !== null && rx.gps_minus_host_s !== undefined ? `${signed(rx.gps_minus_host_s, 2)} s` : "–",
@@ -254,7 +266,7 @@ function renderNoise() {
     body += `<polygon class="band" points="${top.concat(bottom).join(" ")}"/>`;
     body += `<polyline class="mean" points="${points.map((n) => `${x(ms(n.host_utc))},${clampY(n.mean_dbm)}`).join(" ")}"/>`;
     body += points.filter((n) => n.glitches > 0).map((n) =>
-      `<line class="glitch" x1="${x(ms(n.host_utc))}" x2="${x(ms(n.host_utc))}" y1="${H - B}" y2="${H - B - 6}"><title>${esc(n.glitches)} glitch reading(s) near ${esc(clock(n.host_utc))}</title></line>`).join("");
+      `<line class="glitch" x1="${x(ms(n.host_utc))}" x2="${x(ms(n.host_utc))}" y1="${H - B}" y2="${H - B - 6}"><title>${esc(n.glitches)} glitch reading(s) from firmware before 0.3.0 near ${esc(clock(n.host_utc))}</title></line>`).join("");
   }
   body += packets.filter((p) => p.rssi_dbm !== null).map((p) =>
     `<circle data-packet="${p.id}" class="${p.crc_ok ? "ok" : "fail"}" cx="${x(ms(p.host_utc))}" cy="${clampY(p.rssi_dbm)}" r="3.5">` +

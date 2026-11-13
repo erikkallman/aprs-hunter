@@ -38,6 +38,12 @@ NOISE_LINE = json.dumps({
     "v": 1, "type": "noise", "uptime_ms": 10000, "freq_hz": 433775000, "samples": 100,
     "min_dbm": -120.0, "mean_dbm": -117.5, "max_dbm": -95.0,
 })
+# Firmware 0.3.0 and later also count RSSI reads it dropped.
+CHECKED_NOISE_LINE = json.dumps({
+    "v": 1, "type": "noise", "uptime_ms": 20000, "freq_hz": 433775000, "samples": 93,
+    "read_mismatches": 3, "skipped_samples": 1,
+    "min_dbm": -108.0, "mean_dbm": -101.2, "max_dbm": -99.0,
+})
 ERROR_LINE = json.dumps({"v": 1, "type": "error", "uptime_ms": 5000, "where": "radio.readData", "code": -2})
 
 
@@ -156,6 +162,18 @@ class HunterLogTests(unittest.TestCase):
     def test_noise_is_stored(self):
         self.log.handle_line(NOISE_LINE, HOST_UTC)
         self.assertEqual(self.scalar("SELECT max_dbm FROM noise"), -95.0)
+
+    def test_noise_read_mismatches_are_stored(self):
+        self.log.handle_line(CHECKED_NOISE_LINE, HOST_UTC)
+        self.assertEqual(self.scalar("SELECT read_mismatches FROM noise"), 3)
+
+    def test_noise_skipped_samples_are_stored(self):
+        self.log.handle_line(CHECKED_NOISE_LINE, HOST_UTC)
+        self.assertEqual(self.scalar("SELECT skipped_samples FROM noise"), 1)
+
+    def test_noise_from_older_firmware_has_no_read_mismatches(self):
+        self.log.handle_line(NOISE_LINE, HOST_UTC)
+        self.assertIsNone(self.scalar("SELECT read_mismatches FROM noise"))
 
     def test_error_is_stored(self):
         self.log.handle_line(ERROR_LINE, HOST_UTC)
@@ -277,6 +295,19 @@ class MigrationTests(unittest.TestCase):
             rows = conn.execute("SELECT count(*) FROM packets").fetchone()[0]
             conn.close()
         self.assertEqual((("rx_lat" in columns), ("gps_utc" in columns), rows), (True, True, 1))
+
+    def test_old_noise_table_gains_the_read_check_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "old.sqlite"
+            old = sqlite3.connect(str(path))
+            old.execute("CREATE TABLE noise (id INTEGER PRIMARY KEY, host_utc TEXT, min_dbm REAL)")
+            old.commit()
+            old.close()
+
+            conn = hl.open_db(path)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(noise)")}
+            conn.close()
+        self.assertEqual((("read_mismatches" in columns), ("skipped_samples" in columns)), (True, True))
 
 
 if __name__ == "__main__":
