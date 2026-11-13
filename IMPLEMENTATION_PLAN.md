@@ -148,8 +148,9 @@ no -164 dBm minimums and no -37 dBm maximums.
 - The logger stores both counts, stores NULL for older firmware, and adds
   the columns to an existing database.
 - The noise API sums both counts per chart point and per time range.
-**Status**: In Progress (0.3.2 had a torn value in 1 of 222 windows; a
-longer run must show whether the 8% seen on 0.3.0 and 0.3.1 comes back)
+**Status**: In Progress (0.3.2 leaks in 0.9% of windows against 9-17% on
+0.3.0 and 0.3.1 at the same floor; the cause looks like read timing, not
+yet proven)
 
 ## Stage 9: Trace RSSI reads around torn values
 **Goal**: Measure how long a torn value stays in the RSSI register, so the
@@ -276,6 +277,28 @@ Firmware 0.3.2 traces, 10:47 to 11:11 UTC (493 traces, then the 500 limit;
 - Open question: why 0.3.0 and 0.3.1 let more torn values through. The
   floor sat 1 dB lower then, right on the 0x3F/0x40 step, and those runs
   were short (6 torn windows in all). A longer run on 0.3.2 will tell.
+
+Longer run, 10:46 to 13:18 UTC (all firmware counted to the end of its run;
+the earlier 0.3.1 count of 2 in 25 covered its first 25 windows only):
+
+| Firmware | Windows | Torn windows | Floor -101 to -100.5 dBm |
+|---|---|---|---|
+| 0.3.0 | 46 | 4 (8.7%) | 0 of 1 |
+| 0.3.1 | 71 | 12 (16.9%) | 5 of 38 |
+| 0.3.2 | 907 | 8 (0.9%) | 1 of 178 |
+
+- The floor does not explain the difference. With the floor between -101
+  and -100.5 dBm, 0.3.1 leaked in 13% of windows and 0.3.2 in 0.6%.
+- 6 of the 8 torn windows on 0.3.2 are a -93 dBm maximum (0x47), which
+  may also be real.
+- The only change in how 0.3.2 reads the register is that it calls
+  micros() and stores each read, a few microseconds per read. The traces
+  stopped at 11:11, so printing them is not the cause.
+- Hypothesis, not proven: the register updates on a fixed period, and the
+  0.3.0/0.3.1 read period locked onto it. Then back-to-back reads tear at
+  the same point in the same kind of change and give the same torn value.
+  The extra microseconds in 0.3.2 break the lock. The traces cannot show
+  this, because they come from 0.3.2 timing.
 
 ## Later stages (not planned in detail yet)
 
