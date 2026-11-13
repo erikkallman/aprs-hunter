@@ -148,8 +148,8 @@ no -164 dBm minimums and no -37 dBm maximums.
 - The logger stores both counts, stores NULL for older firmware, and adds
   the columns to an existing database.
 - The noise API sums both counts per chart point and per time range.
-**Status**: Complete (board run on 2026-11-13; read limit raised to 8 in
-firmware 0.3.1, see the 2026-11-13 observations)
+**Status**: In Progress (the check stops about 90% of torn values, not
+all of them; see the 2026-11-13 observations)
 
 ## Field observations (2026-11-09, first run on the board)
 
@@ -193,23 +193,41 @@ firmware 0.3.1, see the 2026-11-13 observations)
   near -100 dBm (about 10% of windows on 2026-11-09 13h and 2026-11-10 08h).
 - No packet has been received in any log so far.
 
-Firmware 0.3.0 on the board, same window, from 10:21 UTC (9 windows):
+The read check on the board, same window. A window counts as torn when
+its minimum is -164, -132, -116, or -108 dBm or its maximum is -37, -69,
+-85, or -93 dBm:
 
-- No torn values. Minimums were -103 and -105 dBm, peaks -98 to -100 dBm.
-  In the 60 windows before, minimums of -164, -132, -116, and -108 dBm and
-  peaks of -37, -69, -85, and -93 dBm were common.
-- The mean floor barely moved (-101.2 dBm before, -101.4 dBm after). The
-  torn reads spoiled the minimum and maximum, not the mean.
+| Firmware | Time (UTC) | Windows | Torn windows | Skipped samples |
+|---|---|---|---|---|
+| 0.2.x | 07:37 to 10:21 | 552 | 78% | none (no check) |
+| 0.3.0, 4 reads | 10:21 to 10:29 | 46 | 9% | 15% |
+| 0.3.1, 8 reads | from 10:32 | 25 | 8% | 1.3% |
+
+- The check stops about 90% of torn values, not all of them. The ones
+  that got through were minimums of -116 dBm (0x30) and -108 dBm (0x38)
+  and maximums of -69 dBm (0x5F), all exact tear values.
+- An earlier note here said 0.3.0 let no torn values through. That was
+  true for its first 9 windows only and is wrong for the whole run.
+- To pass the check, two reads in a row must agree on the torn value. A
+  tear inside one SPI transfer cannot repeat exactly in the next one. So
+  the mixed value must sit in the register itself for at least two reads.
+  The SPI explanation above is at best part of the story. How long the
+  mixed value stays is not known yet.
+- The mean floor barely moved (-101.2 dBm before, -101.3 dBm with the
+  check). The torn reads spoiled the minimum and maximum, not the mean.
 - The read check made about 94 tries per window, the same as before, so
   it does not slow the loop.
-- About 0.9 mismatches per try and 14% of samples skipped. That fits a
-  model where each pair of back-to-back reads differs with a chance of
-  about 0.5, because the floor sits on the -101/-100 dBm step. Most
-  mismatches are normal changes, not tears.
+- With 4 reads, there were about 0.9 mismatches per try and 15% of
+  samples skipped. That fits a model where each pair of back-to-back
+  reads differs with a chance of about 0.5, because the floor sits on the
+  -101/-100 dBm step. Most mismatches are normal changes, not tears.
 - With that chance, a limit of n reads skips about 0.5^(n-1) of samples:
-  14% at 4 reads, 1% at 8. Firmware 0.3.1 uses 8.
-- The log has no boot record for this run. The board booted after the
-  flash, before the logger opened the port.
+  14% at 4 reads, 1% at 8. Firmware 0.3.1 uses 8, and the board skipped
+  1.3%. Mismatches rose to about 1.1 per try, because samples that 4
+  reads would skip now count more mismatches before two reads agree.
+- Neither run has a boot record. Opening the port does not reset the
+  board, so the logger misses the boot record when it starts after the
+  board.
 
 ## Later stages (not planned in detail yet)
 

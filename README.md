@@ -348,9 +348,12 @@ real server on a free port. The first run creates `.venv`.
   value and the bottom bits of the next. This is worst near -100 dBm, where
   the register flips from 0x3F to 0x40 and seven bits change at once: a
   -101 dBm reading comes out as -164, -132, or -116 dBm, or as -37, -69, or
-  -85 dBm. Firmware 0.3.0 drops these reads. In older logs the GUI flags
-  minimums below -150 dBm and leaves them out of the noise band, but the
-  fake high readings stay in the maximum.
+  -85 dBm. Firmware 0.3.0 drops most of these reads. On the board, the
+  share of noise windows with a torn minimum or maximum fell from 78% to
+  about 8%. The ones left pass because two reads in a row return the same
+  torn value. In older logs the GUI flags minimums below -150 dBm and
+  leaves them out of the noise band, but the fake high readings stay in
+  the maximum.
 - The sender's CrcOnPayload flag is not logged, so a packet sent without a
   CRC would show `crc_ok` true. LoRa APRS senders use a CRC.
 - One radio listens on one frequency and one set of settings at a time.
