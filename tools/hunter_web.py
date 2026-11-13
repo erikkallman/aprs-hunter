@@ -153,7 +153,8 @@ def api_summary(conn: sqlite3.Connection, since: str) -> dict:
     glitches = _one(conn, "SELECT count(*) AS n FROM noise WHERE host_utc >= ? AND min_dbm < ?",
                     (since, ha.RSSI_GLITCH_BELOW_DBM))
     read_check = _one(conn, """
-        SELECT sum(read_mismatches) AS mismatches, sum(skipped_samples) AS skipped
+        SELECT sum(read_mismatches) AS mismatches, sum(skipped_samples) AS skipped,
+               sum(unconfirmed_samples) AS unconfirmed
         FROM noise WHERE host_utc >= ?""", (since,))
     events = _one(conn, """SELECT (SELECT count(*) FROM boots WHERE host_utc >= ?) AS boots,
                                   (SELECT count(*) FROM errors WHERE host_utc >= ?) AS errors""", (since, since))
@@ -171,6 +172,7 @@ def api_summary(conn: sqlite3.Connection, since: str) -> dict:
         "noise_glitches": glitches["n"],
         "noise_read_mismatches": read_check["mismatches"],
         "noise_skipped_samples": read_check["skipped"],
+        "noise_unconfirmed_samples": read_check["unconfirmed"],
         "receiver": receiver,
         "last_boot": last_boot,
         "boots": events["boots"],

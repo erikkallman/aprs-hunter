@@ -23,6 +23,8 @@ void NoiseStats::addReading(const StableRead &reading)
     mismatches += reading.mismatches;
     if (reading.ok) {
         add(reading.value);
+    } else if (reading.unconfirmed) {
+        unconfirmed++;
     } else {
         skipped++;
     }
@@ -36,6 +38,7 @@ void NoiseStats::reset()
     sum = 0.0;
     mismatches = 0;
     skipped = 0;
+    unconfirmed = 0;
 }
 
 uint32_t NoiseStats::count() const
@@ -66,6 +69,11 @@ uint32_t NoiseStats::readMismatches() const
 uint32_t NoiseStats::skippedSamples() const
 {
     return skipped;
+}
+
+uint32_t NoiseStats::unconfirmedSamples() const
+{
+    return unconfirmed;
 }
 
 // ---- Encoding helpers ----
@@ -247,6 +255,7 @@ std::string formatNoiseRecord(uint32_t uptimeMs, uint32_t frequencyHz, const Noi
     appendUnsigned(out, "samples", stats.count());
     appendUnsigned(out, "read_mismatches", stats.readMismatches());
     appendUnsigned(out, "skipped_samples", stats.skippedSamples());
+    appendUnsigned(out, "unconfirmed_samples", stats.unconfirmedSamples());
     if (stats.count() == 0) {
         appendNull(out, "min_dbm");
         appendNull(out, "mean_dbm");
@@ -301,6 +310,7 @@ std::string formatTraceRecord(uint32_t uptimeMs, float referenceDbm, const Stabl
     } else {
         appendNull(out, "value_dbm");
     }
+    appendBool(out, "unconfirmed", reading.unconfirmed);
     appendUnsigned(out, "stable_reads", stableReads);
     appendUnsigned(out, "missed", missed);
     appendDbmList(out, "reads_dbm", reads);

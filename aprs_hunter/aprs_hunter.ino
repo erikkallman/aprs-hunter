@@ -6,7 +6,7 @@
  *   boot    - firmware version, display mode, and radio settings, at start-up
  *   rx      - every received packet, with signal metadata and the raw bytes
  *   noise   - a noise floor summary every 10 seconds, with counts of the
- *             RSSI reads the read check dropped
+ *             RSSI reads and samples the read check dropped
  *   rssi_trace - the raw RSSI reads around a jump, to study torn reads
  *   display - a display mode change
  *   error   - radio, screen, or command errors
@@ -35,7 +35,7 @@
 #include "stable_read.h"
 #include "stations.h"
 
-#define FIRMWARE_VERSION "0.3.4"
+#define FIRMWARE_VERSION "0.3.5"
 
 // LilyGO T3 V1.6.1 radio pins (same on the 433 MHz and 868 MHz versions)
 #define LORA_SCK 5
@@ -69,14 +69,23 @@
 // a millisecond.
 #define RSSI_MAX_READS 8
 
+// Confirm read (see stable_read.h). Two reads can agree on a torn value when
+// the time between them is close to a multiple of the radio's 8 us register
+// clock. A value this far from the last noise mean takes one more read,
+// after a pause that moves the clock tick about 3 bits along the SPI byte
+// (one bit is 0.5 us at RadioLib's 2 MHz).
+#define RSSI_CONFIRM_FAR_DB 6.0f       // same distance that starts a trace
+#define RSSI_CONFIRM_TOLERANCE_DB 2.0f // a real signal moves about 1 dB between reads
+#define RSSI_CONFIRM_PAUSE_US 1.5f     // keep well away from 0, 4 and 8 us
+
 // Trace of the raw RSSI reads around a jump (see rssi_trace.h). Set
 // RSSI_TRACE_LIMIT to 0 to turn traces off.
 #define RSSI_TRACE_JUMP_DB 6.0f     // a read this far from the last noise mean starts a trace
-#define RSSI_TRACE_EXTRA_READS 24   // reads made after the stable read
+#define RSSI_TRACE_EXTRA_READS 23   // reads made after the stable read and the confirm read
 #define RSSI_TRACE_INTERVAL_MS 1000 // at most one trace per second
 #define RSSI_TRACE_LIMIT 500        // traces per boot
-static_assert(RSSI_MAX_READS + RSSI_TRACE_EXTRA_READS <= TRACE_CAPACITY,
-              "a trace must hold the stable read and the reads after it");
+static_assert(RSSI_MAX_READS + 1 + RSSI_TRACE_EXTRA_READS <= TRACE_CAPACITY,
+              "a trace must hold the stable read, the confirm read, and the reads after them");
 
 #define LED_FLASH_MS 100
 
@@ -131,11 +140,12 @@ bool haveNoiseMean = false;
  * The radio's current RSSI. See stable_read.h for why one read is not enough.
  * Every read is also kept in rssiReads.
  *
- * Keep this read path as it is. Reads come about 97 us apart, and the read
- * spacing sets how often two reads tear the same way and pass the read
- * check: 0.3.1 read back to back and leaked torn values in 13% of noise
- * windows near -100 dBm, this path in 0.8%, and a random 0 to 100 us pause
- * (0.3.3) in 6.4%. Why 97 us works is not known.
+ * Reads come 96.87 us apart on firmware 0.3.2. The radio's RSSI register
+ * changes on an 8 us clock, so two reads tear the same way when their
+ * spacing is close to a multiple of 8 us (96.0 or 104.0 us). 96.87 us is
+ * clear of that by under a microsecond, and a new compiler or library can
+ * move it. The confirm read below is what keeps torn values out, whatever
+ * the spacing is.
  */
 class RadioRssiSource : public RssiSource {
   public:
@@ -147,6 +157,31 @@ class RadioRssiSource : public RssiSource {
 };
 
 RadioRssiSource rssiSource;
+
+/**
+ * The confirm read: a short, exact pause, then a normal read. The pause
+ * counts CPU cycles, because delayMicroseconds() is only good to about a
+ * microsecond and the pause must stay between bit positions.
+ */
+class ShiftedRssiSource : public RssiSource {
+  public:
+    /** Work out the pause in CPU cycles. Call once, before the first read. */
+    void begin() { pauseCycles = (uint32_t)(RSSI_CONFIRM_PAUSE_US * getCpuFrequencyMhz()); }
+
+    float read() override {
+      uint32_t start = ESP.getCycleCount();
+      // Unsigned subtraction stays right when the cycle counter wraps.
+      while (ESP.getCycleCount() - start < pauseCycles) {
+      }
+      return rssiSource.read();
+    }
+
+  private:
+    uint32_t pauseCycles = 0;
+};
+
+ShiftedRssiSource shiftedRssiSource;
+const ConfirmRule confirmRule = {RSSI_CONFIRM_FAR_DB, RSSI_CONFIRM_TOLERANCE_DB};
 
 Preferences prefs;
 PreferencesFlagStore resetFlag(prefs);
@@ -353,12 +388,16 @@ void updateDisplay(uint32_t now) {
 }
 
 /**
- * Take one noise sample. If a read lands far from the last noise mean, make
- * more reads and print them all, so the log shows how long the jump lasted.
+ * Take one noise sample. A value far from the last noise mean must pass the
+ * confirm read to count. If any read lands far from that mean, make more
+ * reads and print them all, so the log shows how long the jump lasted.
  */
 void sampleNoise(uint32_t now) {
   rssiReads.clear();
   StableRead reading = readStable(rssiSource, RSSI_MAX_READS);
+  if (haveNoiseMean) {
+    reading = confirmFarRead(reading, shiftedRssiSource, noiseMeanDbm, confirmRule);
+  }
   noise.addReading(reading);
 
   size_t stableReads = rssiReads.size();
@@ -406,6 +445,7 @@ void setup() {
     }
   }
 
+  shiftedRssiSource.begin();
   lastNoiseSampleMs = millis();
   lastNoiseReportMs = lastNoiseSampleMs;
 }

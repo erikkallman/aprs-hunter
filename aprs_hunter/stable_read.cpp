@@ -1,5 +1,7 @@
 #include "stable_read.h"
 
+#include <cmath>
+
 StableRead readStable(RssiSource &source, uint8_t maxReads)
 {
     if (maxReads < 2) {
@@ -20,4 +22,19 @@ StableRead readStable(RssiSource &source, uint8_t maxReads)
         previous = current;
     }
     return result;
+}
+
+StableRead confirmFarRead(const StableRead &reading, RssiSource &shifted, float referenceDbm,
+                          const ConfirmRule &rule)
+{
+    if (!reading.ok || std::fabs(reading.value - referenceDbm) < rule.farDb) {
+        return reading;
+    }
+    if (std::fabs(shifted.read() - reading.value) <= rule.toleranceDb) {
+        return reading;
+    }
+    StableRead rejected;
+    rejected.mismatches = reading.mismatches + 1;
+    rejected.unconfirmed = true;
+    return rejected;
 }

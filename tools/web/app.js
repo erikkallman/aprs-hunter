@@ -202,6 +202,7 @@ function readCheckParts(s) {
   const parts = [];
   if (s.noise_read_mismatches !== null) parts.push(counted(s.noise_read_mismatches, "RSSI read dropped", "RSSI reads dropped"));
   if (s.noise_skipped_samples) parts.push(counted(s.noise_skipped_samples, "sample skipped", "samples skipped"));
+  if (s.noise_unconfirmed_samples) parts.push(counted(s.noise_unconfirmed_samples, "far value not confirmed", "far values not confirmed"));
   if (s.noise_glitches) parts.push(counted(s.noise_glitches, "glitch window", "glitch windows") + " from firmware before 0.3.0");
   return parts;
 }

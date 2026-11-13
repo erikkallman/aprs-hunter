@@ -39,8 +39,8 @@ using it and your radio hardware lawfully. See
    noise line every 10 seconds:
 
    ```
-   {"v":1,"type":"boot","fw":"0.3.4","uptime_ms":15,"reset_reason":1,"radio_status":0,"display":"animated","radio":{"freq_hz":433775000,"bw_hz":125000,"sf":12,"cr":5,"sync_word":18,"preamble":8}}
-   {"v":1,"type":"noise","uptime_ms":10015,"freq_hz":433775000,"samples":94,"read_mismatches":0,"skipped_samples":0,"min_dbm":-109.00,"mean_dbm":-106.50,"max_dbm":-104.00}
+   {"v":1,"type":"boot","fw":"0.3.5","uptime_ms":15,"reset_reason":1,"radio_status":0,"display":"animated","radio":{"freq_hz":433775000,"bw_hz":125000,"sf":12,"cr":5,"sync_word":18,"preamble":8}}
+   {"v":1,"type":"noise","uptime_ms":10015,"freq_hz":433775000,"samples":94,"read_mismatches":0,"skipped_samples":0,"unconfirmed_samples":0,"min_dbm":-109.00,"mean_dbm":-106.50,"max_dbm":-104.00}
    ```
 
    `radio_status` 0 means the radio started. Any other number is a RadioLib
@@ -281,15 +281,29 @@ The radio changes its RSSI register all the time, so a read can catch it
 halfway through a change (a torn read, see Limits). For each sample the board
 reads the register until two reads in a row agree, at most 8 times (4 in
 firmware 0.3.0). Firmware 0.3.3 waited a random 0 to 100 µs before each
-read; that let more torn values through, and 0.3.4 removed it. From
-firmware 0.3.0 on, two fields count what the check found:
+read; that let more torn values through, and 0.3.4 removed it.
 
-| Field | Meaning |
-|---|---|
-| `read_mismatches` | How often a read disagreed with the read before it. Each mismatch drops one read |
-| `skipped_samples` | Samples left out because no two reads in a row agreed |
+Two reads can still agree on a torn value (see Limits). So from firmware
+0.3.5 on, a value 6 dB or more from the mean of the last noise window
+needs a confirm read: the board pauses 1.5 µs, reads once more, and keeps
+the value only if that read is within 2 dB of it. A real signal lasts and
+passes. A torn value does not.
 
-The logger stores NULL in both columns for records from older firmware.
+These fields count what the check found:
+
+| Field | From | Meaning |
+|---|---|---|
+| `read_mismatches` | 0.3.0 | How often a read disagreed with the read before it. Each mismatch drops one read |
+| `skipped_samples` | 0.3.0 | Samples left out because no two reads in a row agreed |
+| `unconfirmed_samples` | 0.3.5 | Samples left out because two reads agreed on a far value and the confirm read did not |
+
+`samples`, `skipped_samples`, and `unconfirmed_samples` add up to the
+number of tries in the window. The logger stores NULL in a column for
+records from firmware that does not send it.
+
+Each unconfirmed sample is most likely a torn value that the older
+firmware would have counted. With the floor near -100 dBm, expect a few
+per hour. A real spike shorter than about 0.3 ms also ends up here.
 
 Most mismatches are not torn reads. When the noise floor sits on the step
 between two register values, the value often changes between two reads.
@@ -315,17 +329,19 @@ database.
 From firmware 0.3.2 on. These records exist to find out how long a torn
 value stays in the RSSI register (see Limits). When a read of a noise
 sample lands 6 dB or more from the mean of the last noise window, the
-board makes 24 more reads and prints every read of that sample:
+board makes 23 more reads (24 before firmware 0.3.5) and prints every
+read of that sample:
 
 ```
-{"v":1,"type":"rssi_trace","uptime_ms":61200,"ref_dbm":-101.32,"ok":true,"value_dbm":-69.00,"stable_reads":3,"missed":0,"reads_dbm":[-101,-69,-69,-69,-100,...],"t_us":[0,26,51,77,102,...]}
+{"v":1,"type":"rssi_trace","uptime_ms":61200,"ref_dbm":-101.32,"ok":true,"value_dbm":-69.00,"unconfirmed":false,"stable_reads":3,"missed":0,"reads_dbm":[-101,-69,-69,-69,-100,...],"t_us":[0,26,51,77,102,...]}
 ```
 
 | Field | Meaning |
 |---|---|
 | `ref_dbm` | The mean of the last noise window, which the reads were compared with |
-| `ok`, `value_dbm` | What the read check returned. `value_dbm` is null when no two reads agreed |
-| `stable_reads` | How many of the reads the read check made. The rest came after it |
+| `ok`, `value_dbm` | What the read check returned. `value_dbm` is null when no two reads agreed, or when the confirm read rejected the value |
+| `unconfirmed` | From firmware 0.3.5. True when two reads agreed on a far value and the confirm read rejected it |
+| `stable_reads` | How many of the reads the read check made, with the confirm read if there was one. The rest came after it |
 | `missed` | Traces left out since the last one, because they came within a second of it |
 | `reads_dbm` | Every read, in order |
 | `t_us` | When each read finished, in microseconds after the first one |
@@ -375,11 +391,16 @@ real server on a free port. The first run creates `.venv`.
   -101 dBm reading comes out as -164, -132, or -116 dBm, or as -37, -69, or
   -85 dBm. Firmware 0.3.0 drops most of these reads. On the board, the
   share of noise windows with a torn minimum or maximum fell from 78% to
-  about 8%, and in firmware 0.3.2 and 0.3.4 to about 1%. The ones left
+  about 8%, and in firmware 0.3.2 to about 0.1%. The ones left
   pass because two reads in a row return the same torn value. Traces
   (`rssi_trace`) show that a torn value lasts one read, so this needs two
-  separate tears that give the same value. How often that happens depends
-  on the time between reads. In older logs the GUI flags minimums below -150 dBm and
+  separate tears that give the same value. The register changes on a fixed
+  8 µs clock, so that happens when the time between two reads is close to
+  a multiple of 8 µs. Firmware 0.3.2 reads every 96.87 µs, which is clear
+  of 96.0 µs by under a microsecond. Firmware 0.3.5 adds a confirm read so
+  the result no longer depends on that spacing (see
+  `AUDIT_2026-11-13_rssi_read_spacing.md`). It is not yet proven on the
+  board. In older logs the GUI flags minimums below -150 dBm and
   leaves them out of the noise band, but the fake high readings stay in
   the maximum.
 - The sender's CrcOnPayload flag is not logged, so a packet sent without a

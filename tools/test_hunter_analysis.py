@@ -68,6 +68,7 @@ class NoiseTests(unittest.TestCase):
         for i, row in enumerate(rows):
             row["read_mismatches"] = i
             row["skipped_samples"] = 1
+            row["unconfirmed_samples"] = 2
         return rows
 
     def test_a_bucket_sums_the_read_mismatches(self):
@@ -75,6 +76,9 @@ class NoiseTests(unittest.TestCase):
 
     def test_a_bucket_sums_the_skipped_samples(self):
         self.assertEqual(ha.downsample_noise(self.checked_rows(10), 5)[1]["skipped_samples"], 2)
+
+    def test_a_bucket_sums_the_unconfirmed_samples(self):
+        self.assertEqual(ha.downsample_noise(self.checked_rows(10), 5)[1]["unconfirmed_samples"], 4)
 
     def test_a_bucket_from_older_firmware_has_no_read_mismatches(self):
         self.assertIsNone(ha.downsample_noise(self.rows(10), 5)[1]["read_mismatches"])

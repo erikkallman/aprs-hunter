@@ -105,6 +105,7 @@ def downsample_noise(rows: List[dict], max_points: int) -> List[dict]:
             "glitches": sum(1 for r in bucket if is_rssi_glitch(r["min_dbm"])),
             "read_mismatches": _sum_present(bucket, "read_mismatches"),
             "skipped_samples": _sum_present(bucket, "skipped_samples"),
+            "unconfirmed_samples": _sum_present(bucket, "unconfirmed_samples"),
             "rx_lat": bucket[-1].get("rx_lat"),
             "rx_lon": bucket[-1].get("rx_lon"),
         })

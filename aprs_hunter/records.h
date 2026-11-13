@@ -59,7 +59,8 @@ class NoiseStats
 
     /**
      * Add a checked reading: its value if the reads agreed, else one skipped
-     * sample. Its mismatches add to the window's read mismatches.
+     * sample, or one unconfirmed sample if the confirm read rejected the
+     * value. Its mismatches add to the window's read mismatches.
      */
     void addReading(const StableRead &reading);
 
@@ -70,6 +71,7 @@ class NoiseStats
     float meanDbm() const;
     uint32_t readMismatches() const;
     uint32_t skippedSamples() const;
+    uint32_t unconfirmedSamples() const;
 
   private:
     uint32_t samples = 0;
@@ -78,6 +80,7 @@ class NoiseStats
     double sum = 0.0;
     uint32_t mismatches = 0;
     uint32_t skipped = 0;
+    uint32_t unconfirmed = 0;
 };
 
 /**
@@ -110,9 +113,9 @@ std::string formatErrorRecord(uint32_t uptimeMs, const char *where, int code);
  * The raw RSSI reads of one noise sample that jumped.
  *
  * @param referenceDbm the noise mean the reads were compared with
- * @param reading what the stable read returned
- * @param stableReads how many of the reads the stable read made; the rest
- *        came after it
+ * @param reading what the stable read and the confirm read returned
+ * @param stableReads how many of the reads the stable read and the confirm
+ *        read made; the rest came after them
  * @param missed traces refused since the last one printed
  */
 std::string formatTraceRecord(uint32_t uptimeMs, float referenceDbm, const StableRead &reading,

@@ -181,6 +181,54 @@ TEST_CASE("NoiseStats reset clears the skipped samples")
     CHECK(stats.skippedSamples() == 0);
 }
 
+namespace
+{
+    StableRead unconfirmedReading()
+    {
+        StableRead reading;
+        reading.unconfirmed = true;
+        reading.mismatches = 1;
+        return reading;
+    }
+}
+
+TEST_CASE("NoiseStats leaves out an unconfirmed reading")
+{
+    NoiseStats stats;
+    stats.addReading(unconfirmedReading());
+    CHECK(stats.count() == 0);
+}
+
+TEST_CASE("NoiseStats counts unconfirmed samples")
+{
+    NoiseStats stats;
+    stats.addReading(unconfirmedReading());
+    CHECK(stats.unconfirmedSamples() == 1);
+}
+
+TEST_CASE("NoiseStats does not count an unconfirmed sample as skipped")
+{
+    NoiseStats stats;
+    stats.addReading(unconfirmedReading());
+    CHECK(stats.skippedSamples() == 0);
+}
+
+TEST_CASE("NoiseStats reset clears the unconfirmed samples")
+{
+    NoiseStats stats;
+    stats.addReading(unconfirmedReading());
+    stats.reset();
+    CHECK(stats.unconfirmedSamples() == 0);
+}
+
+TEST_CASE("A noise record reports unconfirmed samples")
+{
+    NoiseStats stats;
+    stats.addReading(unconfirmedReading());
+    std::string record = formatNoiseRecord(10000, 433775000, stats);
+    CHECK(record.find("\"skipped_samples\":0,\"unconfirmed_samples\":1,") != std::string::npos);
+}
+
 TEST_CASE("A noise record")
 {
     NoiseStats stats;
@@ -189,7 +237,7 @@ TEST_CASE("A noise record")
     stats.add(-115.0f);
     std::string expected =
         "{\"v\":1,\"type\":\"noise\",\"uptime_ms\":10000,\"freq_hz\":433775000,\"samples\":3,"
-        "\"read_mismatches\":0,\"skipped_samples\":0,"
+        "\"read_mismatches\":0,\"skipped_samples\":0,\"unconfirmed_samples\":0,"
         "\"min_dbm\":-120.00,\"mean_dbm\":-115.00,\"max_dbm\":-110.00}";
     CHECK(formatNoiseRecord(10000, 433775000, stats) == expected);
 }
@@ -209,7 +257,7 @@ TEST_CASE("A noise record with no samples has null values")
     NoiseStats stats;
     std::string expected =
         "{\"v\":1,\"type\":\"noise\",\"uptime_ms\":10000,\"freq_hz\":433775000,\"samples\":0,"
-        "\"read_mismatches\":0,\"skipped_samples\":0,"
+        "\"read_mismatches\":0,\"skipped_samples\":0,\"unconfirmed_samples\":0,"
         "\"min_dbm\":null,\"mean_dbm\":null,\"max_dbm\":null}";
     CHECK(formatNoiseRecord(10000, 433775000, stats) == expected);
 }
@@ -226,7 +274,7 @@ TEST_CASE("An RSSI trace record")
     reads.add(-69.0f, 4051);
     std::string expected =
         "{\"v\":1,\"type\":\"rssi_trace\",\"uptime_ms\":5000,\"ref_dbm\":-101.30,"
-        "\"ok\":true,\"value_dbm\":-69.00,\"stable_reads\":2,\"missed\":1,"
+        "\"ok\":true,\"value_dbm\":-69.00,\"unconfirmed\":false,\"stable_reads\":2,\"missed\":1,"
         "\"reads_dbm\":[-101,-69,-69],\"t_us\":[0,25,51]}";
     CHECK(formatTraceRecord(5000, -101.3f, reading, 2, 1, reads) == expected);
 }
@@ -236,7 +284,15 @@ TEST_CASE("An RSSI trace record when no two reads agreed")
     TraceBuffer reads;
     reads.add(-101.0f, 0);
     std::string record = formatTraceRecord(5000, -101.3f, StableRead(), 1, 0, reads);
-    CHECK(record.find("\"ok\":false,\"value_dbm\":null,") != std::string::npos);
+    CHECK(record.find("\"ok\":false,\"value_dbm\":null,\"unconfirmed\":false,") != std::string::npos);
+}
+
+TEST_CASE("An RSSI trace record of an unconfirmed value")
+{
+    TraceBuffer reads;
+    reads.add(-37.0f, 0);
+    std::string record = formatTraceRecord(5000, -101.3f, unconfirmedReading(), 1, 0, reads);
+    CHECK(record.find("\"ok\":false,\"value_dbm\":null,\"unconfirmed\":true,") != std::string::npos);
 }
 
 TEST_CASE("An RSSI trace record times reads across the microsecond counter wrapping")

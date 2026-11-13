@@ -20,7 +20,7 @@ GLITCH_NOISE = json.dumps({
 
 CHECKED_NOISE = json.dumps({
     "v": 1, "type": "noise", "uptime_ms": 40000, "freq_hz": 433775000, "samples": 93,
-    "read_mismatches": 5, "skipped_samples": 2,
+    "read_mismatches": 5, "skipped_samples": 2, "unconfirmed_samples": 4,
     "min_dbm": -108.0, "mean_dbm": -101.0, "max_dbm": -99.0,
 })
 
@@ -106,6 +106,9 @@ class WebServerTests(unittest.TestCase):
     def test_summary_sums_noise_skipped_samples(self):
         self.assertEqual(self.get_json("/api/summary")["noise_skipped_samples"], 2)
 
+    def test_summary_sums_noise_unconfirmed_samples(self):
+        self.assertEqual(self.get_json("/api/summary")["noise_unconfirmed_samples"], 4)
+
     def test_summary_has_no_read_mismatches_without_checked_noise(self):
         self.assertIsNone(self.get_json("/api/summary?since=2026-11-09T12:00:41.000Z")["noise_read_mismatches"])
 
@@ -140,6 +143,9 @@ class WebServerTests(unittest.TestCase):
 
     def test_noise_points_flag_glitches(self):
         self.assertEqual([p["glitches"] for p in self.get_json("/api/noise")], [0, 1, 0])
+
+    def test_noise_points_carry_unconfirmed_samples(self):
+        self.assertEqual([p["unconfirmed_samples"] for p in self.get_json("/api/noise")], [None, None, 4])
 
     def test_noise_points_carry_read_mismatches(self):
         self.assertEqual([p["read_mismatches"] for p in self.get_json("/api/noise")], [None, None, 5])

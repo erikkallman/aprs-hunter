@@ -68,8 +68,10 @@ RECEIVER_COLUMNS = [
     ("rx_lat", "REAL"), ("rx_lon", "REAL"), ("rx_alt_m", "REAL"),
     ("rx_source", "TEXT"), ("rx_fix_utc", "TEXT"), ("rx_sats", "INTEGER"), ("rx_hdop", "REAL"),
 ]
-# Counts of RSSI reads the firmware dropped, from firmware 0.3.0 on.
-READ_CHECK_COLUMNS = [("read_mismatches", "INTEGER"), ("skipped_samples", "INTEGER")]
+# Counts of RSSI reads and samples the firmware dropped: mismatches and
+# skipped samples from firmware 0.3.0 on, unconfirmed samples from 0.3.5 on.
+READ_CHECK_COLUMNS = [("read_mismatches", "INTEGER"), ("skipped_samples", "INTEGER"),
+                      ("unconfirmed_samples", "INTEGER")]
 # Columns added after the first release, per table.
 ADDED_COLUMNS = {"packets": RECEIVER_COLUMNS, "noise": RECEIVER_COLUMNS + READ_CHECK_COLUMNS}
 
@@ -283,6 +285,7 @@ class HunterLog:
             "mean_dbm": record.get("mean_dbm"), "max_dbm": record.get("max_dbm"),
             "read_mismatches": record.get("read_mismatches"),
             "skipped_samples": record.get("skipped_samples"),
+            "unconfirmed_samples": record.get("unconfirmed_samples"),
         }
         row.update(receiver_columns(tag))
         self._insert("noise", row)
