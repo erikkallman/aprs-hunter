@@ -39,8 +39,8 @@ using it and your radio hardware lawfully. See
    noise line every 10 seconds:
 
    ```
-   {"v":1,"type":"boot","fw":"0.2.0","uptime_ms":15,"reset_reason":1,"radio_status":0,"display":"animated","radio":{"freq_hz":433775000,"bw_hz":125000,"sf":12,"cr":5,"sync_word":18,"preamble":8}}
-   {"v":1,"type":"noise","uptime_ms":10015,"freq_hz":433775000,"samples":100,"min_dbm":-121.00,"mean_dbm":-117.40,"max_dbm":-109.00}
+   {"v":1,"type":"boot","fw":"0.3.0","uptime_ms":15,"reset_reason":1,"radio_status":0,"display":"animated","radio":{"freq_hz":433775000,"bw_hz":125000,"sf":12,"cr":5,"sync_word":18,"preamble":8}}
+   {"v":1,"type":"noise","uptime_ms":10015,"freq_hz":433775000,"samples":94,"read_mismatches":0,"skipped_samples":0,"min_dbm":-109.00,"mean_dbm":-106.50,"max_dbm":-104.00}
    ```
 
    `radio_status` 0 means the radio started. Any other number is a RadioLib
@@ -184,13 +184,14 @@ The page works offline: it uses no internet and no outside libraries. It
 updates every 5 seconds. The buttons at the top pick the time range.
 
 - **Tiles**: packet and station counts, CRC failure rate, farthest station,
-  last packet, the latest noise window, the receiver position and its
+  last packet, the latest noise window and the RSSI reads the firmware
+  dropped, the receiver position and its
   source, GPS time minus computer time, and the board's firmware and radio
   settings. The dot next to the title is green while records arrive.
 - **Noise floor and packets**: the noise mean as a line, the minimum to
   maximum as a band, every packet as a dot at its RSSI (hollow for a CRC
-  failure), and ticks for impossible -164 dBm readings, which are left out
-  of the band.
+  failure), and ticks for torn -164 dBm readings in logs from firmware
+  before 0.3.0, which are left out of the band.
 - **Stations by bearing and distance**: a compass plot around the receiver.
   Hollow dots were only heard via a digipeater.
 - **Signal against distance**: RSSI against the distance to each station.
@@ -229,9 +230,12 @@ SELECT src, count(*) AS packets, round(avg(freq_err_hz)) AS mean_err_hz,
        round(avg(freq_err_ppm), 2) AS mean_ppm
 FROM packets WHERE crc_ok = 1 GROUP BY src;
 
--- Noise floor per hour
-SELECT substr(host_utc, 1, 13) AS hour, min(min_dbm) AS lowest,
-       round(avg(mean_dbm), 1) AS average, max(max_dbm) AS highest
+-- Noise floor per hour, with the RSSI reads the firmware dropped. Minimums
+-- below -150 dBm are torn reads from firmware before 0.3.0.
+SELECT substr(host_utc, 1, 13) AS hour,
+       min(CASE WHEN min_dbm >= -150 THEN min_dbm END) AS lowest,
+       round(avg(mean_dbm), 1) AS average, max(max_dbm) AS highest,
+       sum(read_mismatches) AS reads_dropped
 FROM noise GROUP BY hour;
 
 -- Good packets and CRC failures per day
@@ -273,6 +277,18 @@ messages, are ignored by the logger.
 `mean_dbm`, and `max_dbm`. Packets received during the window raise
 `max_dbm`.
 
+The radio changes its RSSI register all the time, so a read can catch it
+halfway through a change (a torn read, see Limits). For each sample the board
+reads the register until two reads in a row agree, at most 4 times. From
+firmware 0.3.0 on, two fields count what the check found:
+
+| Field | Meaning |
+|---|---|
+| `read_mismatches` | How often a read disagreed with the read before it. Each mismatch drops one read |
+| `skipped_samples` | Samples left out because no two reads in a row agreed |
+
+The logger stores NULL in both columns for records from older firmware.
+
 ### `boot`: once at start-up
 
 Firmware version `fw`, ESP32 `reset_reason`, `radio_status` (RadioLib result
@@ -306,7 +322,8 @@ make test
 ```
 
 This runs the C++ tests on your computer, and the Python tests. The C++ tests
-cover the frame parser, the record format, and the display logic (screen
+cover the frame parser, the record format, the RSSI read check, and the
+display logic (screen
 choice, sonar geometry, station table, double reset). The drawing code
 itself needs the board. The Python tests cover the logger, NMEA parsing and
 position tracking, the analysis functions, and the web server's API with a
@@ -318,9 +335,14 @@ real server on a free port. The first run creates `.venv`.
   GPS on the computer.
 - The GPS support is tested with recorded NMEA sentences, not yet with a GPS
   receiver.
-- Noise windows sometimes report a minimum of -164 dBm. That is the radio's
-  RSSI register reading 0, which is below thermal noise, so it is a read
-  glitch. The GUI flags these readings and leaves them out of the noise band.
+- Firmware before 0.3.0 logged torn RSSI reads. The radio changes its RSSI
+  register while the board reads it, so the board gets the top bits of one
+  value and the bottom bits of the next. This is worst near -100 dBm, where
+  the register flips from 0x3F to 0x40 and seven bits change at once: a
+  -101 dBm reading comes out as -164, -132, or -116 dBm, or as -37, -69, or
+  -85 dBm. Firmware 0.3.0 drops these reads. In older logs the GUI flags
+  minimums below -150 dBm and leaves them out of the noise band, but the
+  fake high readings stay in the maximum.
 - The sender's CrcOnPayload flag is not logged, so a packet sent without a
   CRC would show `crc_ok` true. LoRa APRS senders use a CRC.
 - One radio listens on one frequency and one set of settings at a time.

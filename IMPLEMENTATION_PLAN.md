@@ -134,6 +134,22 @@ user's real database and with generated packet data.
 - The HTTP server answers the API routes with JSON and serves the page.
 **Status**: Complete
 
+## Stage 8: Drop torn RSSI reads
+**Goal**: Noise windows hold only RSSI readings that were read whole, and
+each noise record says how many reads the firmware dropped.
+**Success Criteria**: Host and Python tests pass; the firmware builds for
+the T3; on the board, with the noise floor near -100 dBm, noise windows show
+no -164 dBm minimums and no -37 dBm maximums.
+**Tests**:
+- A value counts only when two reads in a row agree. A torn first or middle
+  read is dropped. Reads that never agree stop at the read limit and skip
+  the sample. Every mismatch is counted.
+- Noise records carry `read_mismatches` and `skipped_samples`.
+- The logger stores both counts, stores NULL for older firmware, and adds
+  the columns to an existing database.
+- The noise API sums both counts per chart point and per time range.
+**Status**: In Progress (code and tests done; needs a run on the board)
+
 ## Field observations (2026-11-09, first run on the board)
 
 - 4 boots and 2 double-reset mode switches worked as designed.
@@ -143,11 +159,38 @@ user's real database and with generated packet data.
   the RSSI register reading 0. That is below thermal noise (about -117 dBm
   at 125 kHz with the SX1278 noise figure), so it is almost certainly a read
   glitch. The window minimum is therefore unreliable; the GUI plots the mean
-  and flags these readings.
+  and flags these readings. (Superseded 2026-11-13: these are torn reads,
+  not a register reading 0. See the next section.)
 - Some windows peak at -37 dBm, a very strong signal: likely a nearby
-  433 MHz device or local interference.
+  433 MHz device or local interference. (Wrong, found 2026-11-13: these are
+  torn reads too.)
 - Windows hold 93-94 samples instead of 100, because screen drawing delays
   the 100 ms sampling.
+
+## Field observations (2026-11-13, new antenna in a window)
+
+- The user moved the board to a window with a better antenna at 07:36 UTC
+  (the board restarted). The noise mean rose from about -107 dBm to about
+  -101 dBm, so the window gets about 6 dB more noise.
+- From then on 20-31% of noise windows had a -164 dBm minimum, against
+  under 1% before, and many windows peaked at -37 dBm.
+- Both are torn reads of the RSSI register. SPI shifts the byte out top bit
+  first. When the register changes during the read, the board gets the top
+  bits of one value and the bottom bits of the other. Near -100 dBm the
+  register flips between 0x3F (-101 dBm) and 0x40 (-100 dBm), and seven
+  bits change at once. The mixes it can produce are 0x00, 0x20, 0x30, 0x38,
+  0x3C (-164, -132, -116, -108, -104 dBm) and 0x7F, 0x5F, 0x4F, 0x47, 0x43,
+  0x41 (-37, -69, -85, -93, -97, -99 dBm).
+- Evidence: in all windows with a mean between -104 and -98 dBm, minimums
+  and maximums pile up on exactly those values, and values between them
+  almost never appear. -164 dBm and -37 dBm each appear 204 times. Real
+  interference would spread over all values.
+- The same happens at other bit boundaries with fewer bits changing. On
+  2026-11-09 the floor sat near 0x47/0x48 (-93/-92 dBm), and maximums of
+  0x4F (-85 dBm) and minimums of 0x40 (-100 dBm) were torn reads too.
+- The basement logs had the same effect, in the hours when their floor sat
+  near -100 dBm (about 10% of windows on 2026-11-09 13h and 2026-11-10 08h).
+- No packet has been received in any log so far.
 
 ## Later stages (not planned in detail yet)
 
@@ -191,6 +234,19 @@ user's real database and with generated packet data.
   from the logged RSSI and SNR.
 - **Noise floor.** The board reads the current channel RSSI every 100 ms and
   reports count, minimum, mean, and maximum every 10 seconds.
+- **Torn RSSI reads (2026-11-13).** A noise sample counts only when two
+  reads of the RSSI register in a row agree, with at most 4 reads. Each
+  noise record counts the mismatches and the samples skipped, so the
+  problem stays visible instead of hidden. Rejected alternatives:
+  - A wider glitch limit in the analysis. The high-side fakes (-99, -97,
+    -93 dBm) look like real readings, so no limit can separate them. And a
+    record keeps only the minimum, mean, and maximum, so a bad window cannot
+    be repaired on the computer.
+  - The median of three reads. It also works, but always costs three reads
+    and gives no direct count of torn reads.
+  - Matching the tear pattern in old logs. It only works at known bit
+    boundaries. Old logs keep the -150 dBm limit, which catches the low side
+    only.
 - **Minimal sonar for the idle screen.** The user wants to wear the board
   and asked for a minimalistic animation. A first draft had three busy idle
   views (noise graph, radar, station list); it was dropped for one calm
