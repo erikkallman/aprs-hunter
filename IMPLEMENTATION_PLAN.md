@@ -148,8 +148,8 @@ no -164 dBm minimums and no -37 dBm maximums.
 - The logger stores both counts, stores NULL for older firmware, and adds
   the columns to an existing database.
 - The noise API sums both counts per chart point and per time range.
-**Status**: In Progress (the check stops about 90% of torn values, not
-all of them; see the 2026-11-13 observations)
+**Status**: In Progress (0.3.2 had a torn value in 1 of 222 windows; a
+longer run must show whether the 8% seen on 0.3.0 and 0.3.1 comes back)
 
 ## Stage 9: Trace RSSI reads around torn values
 **Goal**: Measure how long a torn value stays in the RSSI register, so the
@@ -169,7 +169,7 @@ one per second and 500 per boot.
 - The trace record lists the reads in dBm and their times from the first
   read, and has `value_dbm` null when no two reads agreed.
 - The logger archives trace records and stores nothing for them.
-**Status**: In Progress
+**Status**: Complete (493 traces on 2026-11-13; see the observations)
 
 ## Field observations (2026-11-09, first run on the board)
 
@@ -232,7 +232,8 @@ its minimum is -164, -132, -116, or -108 dBm or its maximum is -37, -69,
   tear inside one SPI transfer cannot repeat exactly in the next one. So
   the mixed value must sit in the register itself for at least two reads.
   The SPI explanation above is at best part of the story. How long the
-  mixed value stays is not known yet.
+  mixed value stays is not known yet. (Superseded: the 0.3.2 traces below
+  show a torn value never lasts past one read.)
 - The mean floor barely moved (-101.2 dBm before, -101.3 dBm with the
   check). The torn reads spoiled the minimum and maximum, not the mean.
 - The read check made about 94 tries per window, the same as before, so
@@ -248,6 +249,33 @@ its minimum is -164, -132, -116, or -108 dBm or its maximum is -37, -69,
 - Neither run has a boot record. Opening the port does not reset the
   board, so the logger misses the boot record when it starts after the
   board.
+
+Firmware 0.3.2 traces, 10:47 to 11:11 UTC (493 traces, then the 500 limit;
+339 more refused by the one-per-second rule):
+
+- Reads are 97 µs apart (96 to 103). RadioLib's getRSSI is slower than
+  the 25 µs assumed earlier. Between reads the register often keeps the
+  same value for many reads in a row.
+- 903 far values, all exact tear values (-164, -132, -116, -108, -93,
+  -85, -69, -37 dBm in about equal numbers). Every one lasted exactly one
+  read. The read before and after was back at -101 or -100 dBm.
+- So a torn value does not sit in the register. The SPI explanation
+  holds, and the note above that said otherwise is wrong.
+- About 3% of reads are torn (3.1% in the reads after the stable read,
+  which the trigger does not bias).
+- Back-to-back torn reads happened 33 times in 13,924 pairs, below the
+  52 expected if tears were independent. None of the 33 had the same
+  value twice. A torn value passes the check only when two separate tears
+  give the same value, which these traces never showed.
+- The check returned a far value in 2 traces. Both were a real drop of
+  the floor to -107 to -110 dBm at 11:04 that lasted all 28 reads.
+- Noise windows from 10:46 on: a torn value in 1 of 222 windows (a -93 dBm
+  maximum at 11:16, which can also be real), against 9% on 0.3.0 and 8% on
+  0.3.1. Skipped samples 2.1%. The mean floor was -100.1 dBm, against
+  -101.3 dBm then.
+- Open question: why 0.3.0 and 0.3.1 let more torn values through. The
+  floor sat 1 dB lower then, right on the 0x3F/0x40 step, and those runs
+  were short (6 torn windows in all). A longer run on 0.3.2 will tell.
 
 ## Later stages (not planned in detail yet)
 

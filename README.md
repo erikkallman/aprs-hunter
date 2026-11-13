@@ -375,8 +375,9 @@ real server on a free port. The first run creates `.venv`.
   -85 dBm. Firmware 0.3.0 drops most of these reads. On the board, the
   share of noise windows with a torn minimum or maximum fell from 78% to
   about 8%. The ones left pass because two reads in a row return the same
-  torn value. Firmware 0.3.2 logs the raw reads around each jump
-  (`rssi_trace`) to find out how long a torn value lasts. In older logs the GUI flags minimums below -150 dBm and
+  torn value. Traces from firmware 0.3.2 (`rssi_trace`) show that a torn
+  value lasts one read, so this needs two separate tears that give the
+  same value. In older logs the GUI flags minimums below -150 dBm and
   leaves them out of the noise band, but the fake high readings stay in
   the maximum.
 - The sender's CrcOnPayload flag is not logged, so a packet sent without a
