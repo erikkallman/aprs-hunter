@@ -74,6 +74,12 @@ record format.
   phone width. The migration added the new columns to a copy of the real
   database with all rows kept. Not yet verified: a real GPS receiver.
 
+- Stage 10 (confirm read, 2026-11-13): 140 C++ tests and 144 Python tests
+  pass. The sketch builds for the T3 with PlatformIO (espressif32 5.2.0,
+  RadioLib 8.0.0), 44% of flash. Not yet built in Arduino IDE and not yet
+  run on the board. The length of the 1.5 µs pause is not measured; the
+  `t_us` gap before the confirm read in a trace will show it.
+
 ## Stage 5: Wearable display
 **Goal**: The OLED shows a short notification for every packet. Between
 packets it shows a calm, minimal sonar animation (animated mode) or stays
@@ -151,7 +157,9 @@ no -164 dBm minimums and no -37 dBm maximums.
 **Status**: In Progress (read spacing sets the leak rate: 0.3.2 with a
 steady 97 µs leaks in 0.8% of windows near -100 dBm, 0.3.1 in 13%, and
 the 0.3.3 random pause in 6.4%; 0.3.4 goes back to the 0.3.2 read path
-and needs a board run to confirm about 1%)
+and needs a board run to confirm about 1%. Later on 2026-11-13: the audit
+explains these rates, and Stage 10 adds a check that does not depend on
+read spacing)
 
 ## Stage 9: Trace RSSI reads around torn values
 **Goal**: Measure how long a torn value stays in the RSSI register, so the
@@ -172,6 +180,30 @@ one per second and 500 per boot.
   read, and has `value_dbm` null when no two reads agreed.
 - The logger archives trace records and stores nothing for them.
 **Status**: Complete (493 traces on 2026-11-13; see the observations)
+
+## Stage 10: Confirm far RSSI values with a third read
+**Goal**: A torn value cannot pass the read check, whatever the time
+between reads is. Each noise record says how many values the confirm read
+rejected.
+**Success Criteria**: Host and Python tests pass; the firmware builds for
+the T3; on the board, with the floor near -100 dBm, no noise window has a
+minimum of -164, -132, -116, or -108 dBm or a maximum of -37, -69, or
+-85 dBm, and `unconfirmed_samples` is above zero over an hour.
+**Tests**:
+- A value near the reference, or a reading that is not ok, takes no
+  confirm read and comes back as it is.
+- A far value takes one confirm read. Within the tolerance it is kept.
+  Outside it the reading is not ok, is marked unconfirmed, and counts one
+  more mismatch.
+- Noise statistics leave out an unconfirmed reading, count it apart from
+  skipped samples, and clear the count on reset.
+- Noise records carry `unconfirmed_samples`; trace records carry
+  `unconfirmed`.
+- The logger stores the count, stores NULL for older firmware, and adds
+  the column to an existing database. The noise API sums it per chart
+  point and per time range.
+**Status**: In Progress (firmware 0.3.5 on branch `confirm-far-rssi-reads`;
+host tests, Python tests, and the T3 build pass; not yet run on the board)
 
 ## Field observations (2026-11-09, first run on the board)
 
@@ -334,6 +366,31 @@ worse, not better:
   path. A board run with the floor near -100 dBm should show torn windows
   near 0.8% and skipped samples near 2%.
 
+Audit of the read spacing (2026-11-13, see
+`AUDIT_2026-11-13_rssi_read_spacing.md` for the numbers and scripts):
+
+- The RSSI register changes only on a fixed 8.00 µs clock, one sample at
+  125 kHz bandwidth. A torn value repeats only when the clock tick lands
+  on the same bit of the SPI byte in two reads in a row. That depends on
+  the read spacing modulo 8 µs.
+- Firmware 0.3.2 reads every 96.87 µs: 12 ticks plus 0.87 µs. Each tear
+  moves about 2 bits, so the value differs. This answers "why 97 µs
+  avoids repeats". The margin is small: leaks start about 0.4 µs lower.
+- The model gives 0% torn windows at 96.87 µs, 6 to 7% for random
+  spacing, and 10 to 12% at 96.4 µs. The board gave 0.1%, 5.1%, and 13.4%
+  (0.3.1, spacing not measured).
+- Correction to the tables above: a -93 dBm maximum is not a torn value
+  on its own. On 0.3.2 the window maximums of -96 to -92 dBm form a smooth
+  tail of real peaks. Without -93 dBm, 0.3.2 leaked in 1 of 865 windows
+  near -100 dBm, not 7. Count torn windows without the -93 dBm maximum
+  from here on.
+- Firmware 0.3.3 kept running to 14:53 UTC. With the strict rule it
+  leaked in 9 of 178 windows near -100 dBm.
+- One packet arrived at 14:38:21 UTC (SM4JDW-9, CRC failed, SNR -21 dB).
+  It is the first packet in any log.
+- Not confirmed: the 0.3.1 spacing, and about 7% of torn pairs that sit
+  half a period off the clock.
+
 ## Later stages (not planned in detail yet)
 
 - Portable: SD card logging, battery level, lower CPU clock in notify-only
@@ -428,6 +485,43 @@ worse, not better:
     one getRSSI, then micros() and a store into the trace buffer. A
     comment on the read function says to keep it so, because a change
     there moves the read spacing and with it the leak rate.
+- **Confirm read for far values (2026-11-13).** Firmware 0.3.5 checks an
+  agreed value that lies 6 dB or more from the last noise mean with one
+  more read, made after a 1.5 µs pause. The value counts only when that
+  read is within 2 dB of it.
+  - Why: the audit shows that a torn value repeats when the read spacing
+    is close to a multiple of the register's 8 µs clock. The 0.3.4 fix
+    (keep the read path frozen at 96.87 µs) works by a margin of under a
+    microsecond that the compiler sets. The pause moves the clock tick
+    about 3 bits along the SPI byte, so a third identical tear cannot
+    happen at any spacing.
+  - 1.5 µs keeps the third read away from the clock (0 and 8 µs) and from
+    the half-period minority (4 µs), both at the present spacing and at a
+    locked one: the tick moves 1.5 to 2.4 µs.
+  - The pause counts CPU cycles. delayMicroseconds() is only good to about
+    a microsecond, which is the whole margin.
+  - Only far values take the third read, so normal samples cost nothing
+    more. 6 dB is the distance that already starts a trace.
+  - The confirm read needs to be within 2 dB, not equal. Two clean reads
+    in a row agree only 40 to 47% of the time, so an exact match would
+    drop about half of all real far signals. Torn values lie 6 dB or more
+    from the floor and 8 dB or more from each other, so 2 dB cannot let
+    one through.
+  - A rejected value counts as `unconfirmed_samples`, apart from
+    `skipped_samples`, so the board run can show the check at work.
+  - Known limits: a real spike shorter than three reads (about 0.3 ms) is
+    dropped. Torn values within 6 dB of the floor (-104, -102, -99,
+    -97 dBm) still pass; they barely move the minimum and maximum.
+  - A trace now makes 23 extra reads, not 24, so the stable read, the
+    confirm read, and the extra reads fit the 32-read buffer.
+  - Rejected: tuning the spacing to 98 or 102 µs. It works in the model
+    but still depends on the build. Rejected: a faster SPI clock. It only
+    makes tears rarer and is not tested on this board.
+  - Rejected for now: a mean read gap in each noise record. With the
+    confirm read the spacing no longer decides the result, and the traces
+    already carry read times.
+  - Not done: a board run at 96.0 µs on purpose, which would prove the
+    model (it predicts torn windows near 40% without the confirm read).
 - **Minimal sonar for the idle screen.** The user wants to wear the board
   and asked for a minimalistic animation. A first draft had three busy idle
   views (noise graph, radar, station list); it was dropped for one calm
