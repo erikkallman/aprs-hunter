@@ -39,7 +39,7 @@ using it and your radio hardware lawfully. See
    noise line every 10 seconds:
 
    ```
-   {"v":1,"type":"boot","fw":"0.3.3","uptime_ms":15,"reset_reason":1,"radio_status":0,"display":"animated","radio":{"freq_hz":433775000,"bw_hz":125000,"sf":12,"cr":5,"sync_word":18,"preamble":8}}
+   {"v":1,"type":"boot","fw":"0.3.4","uptime_ms":15,"reset_reason":1,"radio_status":0,"display":"animated","radio":{"freq_hz":433775000,"bw_hz":125000,"sf":12,"cr":5,"sync_word":18,"preamble":8}}
    {"v":1,"type":"noise","uptime_ms":10015,"freq_hz":433775000,"samples":94,"read_mismatches":0,"skipped_samples":0,"min_dbm":-109.00,"mean_dbm":-106.50,"max_dbm":-104.00}
    ```
 
@@ -280,10 +280,9 @@ messages, are ignored by the logger.
 The radio changes its RSSI register all the time, so a read can catch it
 halfway through a change (a torn read, see Limits). For each sample the board
 reads the register until two reads in a row agree, at most 8 times (4 in
-firmware 0.3.0). From firmware 0.3.3 on, the board waits a random 0 to
-100 µs before each read, so the reads cannot fall into step with the
-register updates. From firmware 0.3.0 on, two fields count what the check
-found:
+firmware 0.3.0). Firmware 0.3.3 waited a random 0 to 100 µs before each
+read; that let more torn values through, and 0.3.4 removed it. From
+firmware 0.3.0 on, two fields count what the check found:
 
 | Field | Meaning |
 |---|---|
@@ -376,10 +375,11 @@ real server on a free port. The first run creates `.venv`.
   -101 dBm reading comes out as -164, -132, or -116 dBm, or as -37, -69, or
   -85 dBm. Firmware 0.3.0 drops most of these reads. On the board, the
   share of noise windows with a torn minimum or maximum fell from 78% to
-  about 8%. The ones left pass because two reads in a row return the same
-  torn value. Traces from firmware 0.3.2 (`rssi_trace`) show that a torn
-  value lasts one read, so this needs two separate tears that give the
-  same value. In older logs the GUI flags minimums below -150 dBm and
+  about 8%, and in firmware 0.3.2 and 0.3.4 to about 1%. The ones left
+  pass because two reads in a row return the same torn value. Traces
+  (`rssi_trace`) show that a torn value lasts one read, so this needs two
+  separate tears that give the same value. How often that happens depends
+  on the time between reads. In older logs the GUI flags minimums below -150 dBm and
   leaves them out of the noise band, but the fake high readings stay in
   the maximum.
 - The sender's CrcOnPayload flag is not logged, so a packet sent without a

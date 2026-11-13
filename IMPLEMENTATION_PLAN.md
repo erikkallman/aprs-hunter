@@ -150,7 +150,8 @@ no -164 dBm minimums and no -37 dBm maximums.
 - The noise API sums both counts per chart point and per time range.
 **Status**: In Progress (read spacing sets the leak rate: 0.3.2 with a
 steady 97 µs leaks in 0.8% of windows near -100 dBm, 0.3.1 in 13%, and
-the 0.3.3 random pause in 6.4%; the 0.3.3 pause must go)
+the 0.3.3 random pause in 6.4%; 0.3.4 goes back to the 0.3.2 read path
+and needs a board run to confirm about 1%)
 
 ## Stage 9: Trace RSSI reads around torn values
 **Goal**: Measure how long a torn value stays in the RSSI register, so the
@@ -329,6 +330,9 @@ worse, not better:
   matters, as the hypothesis said. But the steady 97 µs spacing is the
   good case, and random spacing averages good and bad spacings. Why 97 µs
   avoids repeats is not known.
+- Next: firmware 0.3.4 removes the pause and goes back to the 0.3.2 read
+  path. A board run with the floor near -100 dBm should show torn windows
+  near 0.8% and skipped samples near 2%.
 
 ## Later stages (not planned in detail yet)
 
@@ -420,6 +424,10 @@ worse, not better:
     the 2026-11-13 observations). The obvious idea, break any lock with
     randomness, was wrong here: the steady spacing of 0.3.2 was the good
     case.
+  - Firmware 0.3.4 removes the pause. The read path is the same as 0.3.2:
+    one getRSSI, then micros() and a store into the trace buffer. A
+    comment on the read function says to keep it so, because a change
+    there moves the read spacing and with it the leak rate.
 - **Minimal sonar for the idle screen.** The user wants to wear the board
   and asked for a minimalistic animation. A first draft had three busy idle
   views (noise graph, radar, station list); it was dropped for one calm
