@@ -148,9 +148,9 @@ no -164 dBm minimums and no -37 dBm maximums.
 - The logger stores both counts, stores NULL for older firmware, and adds
   the columns to an existing database.
 - The noise API sums both counts per chart point and per time range.
-**Status**: In Progress (0.3.2 leaks in 0.9% of windows against 9-17% on
-0.3.0 and 0.3.1 at the same floor; the cause looks like read timing, not
-yet proven)
+**Status**: In Progress (read spacing sets the leak rate: 0.3.2 with a
+steady 97 µs leaks in 0.8% of windows near -100 dBm, 0.3.1 in 13%, and
+the 0.3.3 random pause in 6.4%; the 0.3.3 pause must go)
 
 ## Stage 9: Trace RSSI reads around torn values
 **Goal**: Measure how long a torn value stays in the RSSI register, so the
@@ -302,6 +302,34 @@ the earlier 0.3.1 count of 2 in 25 covered its first 25 windows only):
 - Next: firmware 0.3.3 adds a random pause before each read instead of
   testing 0.3.1 again (see the decision on read jitter).
 
+Firmware 0.3.3, 13:32 to 14:36 UTC (384 windows). The pause made leaks
+worse, not better:
+
+| Floor (mean dBm) | 0.3.2 torn windows | 0.3.3 torn windows |
+|---|---|---|
+| -104 to -101.5 | 0 of 39 | 0 of 297 |
+| -101.5 to -99.5 | 7 of 865 (0.8%) | 5 of 78 (6.4%) |
+| -99.5 to -97 | 1 of 68 | none at this floor |
+
+- Torn values only appear with the floor near the 0x3F/0x40 step, so
+  only the middle row compares the two. The gap there has a one-sided
+  Fisher p of 0.002. 0.3.3 spent most of its run lower, near -102 dBm,
+  which hides the gap in the overall rate (1.3% against 0.8%).
+- The traces confirm it. Gaps between reads are now 98 to 204 µs (median
+  149) against 96 to 104 µs on 0.3.2. On 0.3.3, 4 of 598 torn values
+  repeat on the next read: -37, -37; -116, -116; -85, -85; -37, -37. On
+  0.3.2, none of 866 did. (Its one repeat, -108, -108, sat inside a real
+  -110 to -108 dBm signal.) 3 of the 4 repeats became the stable value.
+- Skipped samples rose from 2.1% to 4.5%, and from 0.8% to 4.7% with the
+  floor near -102 dBm. A longer gap gives the register more time to move
+  between the two reads, so more pairs disagree.
+- What this says about timing: three read spacings give three leak rates
+  at the same floor. 0.3.1 (back to back, no micros()) leaked in 13%;
+  0.3.2 (a steady 97 µs) in 0.8%; random spacing in 6.4%. So spacing
+  matters, as the hypothesis said. But the steady 97 µs spacing is the
+  good case, and random spacing averages good and bad spacings. Why 97 µs
+  avoids repeats is not known.
+
 ## Later stages (not planned in detail yet)
 
 - Portable: SD card logging, battery level, lower CPU clock in notify-only
@@ -387,6 +415,11 @@ the earlier 0.3.1 count of 2 in 25 covered its first 25 windows only):
   - The pause is board timing, so no host test covers it. The board run
     is the test: torn windows should stay near or below 0.9%, with no
     rise in skipped samples.
+  - Result: failed on both counts. At the same floor, torn windows rose
+    from 0.8% to 6.4% and skipped samples doubled (see the 0.3.3 run in
+    the 2026-11-13 observations). The obvious idea, break any lock with
+    randomness, was wrong here: the steady spacing of 0.3.2 was the good
+    case.
 - **Minimal sonar for the idle screen.** The user wants to wear the board
   and asked for a minimalistic animation. A first draft had three busy idle
   views (noise graph, radar, station list); it was dropped for one calm
