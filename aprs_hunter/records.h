@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+#include "stable_read.h"
+
 /**
  * Radio settings, reported once in the boot record.
  */
@@ -52,17 +54,28 @@ class NoiseStats
 {
   public:
     void add(float rssiDbm);
+
+    /**
+     * Add a checked reading: its value if the reads agreed, else one skipped
+     * sample. Its mismatches add to the window's read mismatches.
+     */
+    void addReading(const StableRead &reading);
+
     void reset();
     uint32_t count() const;
     float minDbm() const;
     float maxDbm() const;
     float meanDbm() const;
+    uint32_t readMismatches() const;
+    uint32_t skippedSamples() const;
 
   private:
     uint32_t samples = 0;
     float minimum = 0.0f;
     float maximum = 0.0f;
     double sum = 0.0;
+    uint32_t mismatches = 0;
+    uint32_t skipped = 0;
 };
 
 /**

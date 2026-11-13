@@ -127,6 +127,60 @@ TEST_CASE("NoiseStats reset clears the samples")
     CHECK(stats.count() == 0);
 }
 
+TEST_CASE("NoiseStats adds a reading whose reads agreed")
+{
+    NoiseStats stats;
+    StableRead reading;
+    reading.ok = true;
+    reading.value = -101.0f;
+    stats.addReading(reading);
+    CHECK(stats.count() == 1);
+}
+
+TEST_CASE("NoiseStats skips a reading whose reads never agreed")
+{
+    NoiseStats stats;
+    stats.addReading(StableRead());
+    CHECK(stats.count() == 0);
+}
+
+TEST_CASE("NoiseStats counts skipped samples")
+{
+    NoiseStats stats;
+    stats.addReading(StableRead());
+    CHECK(stats.skippedSamples() == 1);
+}
+
+TEST_CASE("NoiseStats sums read mismatches")
+{
+    NoiseStats stats;
+    StableRead reading;
+    reading.ok = true;
+    reading.value = -101.0f;
+    reading.mismatches = 2;
+    stats.addReading(reading);
+    stats.addReading(reading);
+    CHECK(stats.readMismatches() == 4);
+}
+
+TEST_CASE("NoiseStats reset clears the read mismatches")
+{
+    NoiseStats stats;
+    StableRead reading;
+    reading.mismatches = 3;
+    stats.addReading(reading);
+    stats.reset();
+    CHECK(stats.readMismatches() == 0);
+}
+
+TEST_CASE("NoiseStats reset clears the skipped samples")
+{
+    NoiseStats stats;
+    stats.addReading(StableRead());
+    stats.reset();
+    CHECK(stats.skippedSamples() == 0);
+}
+
 TEST_CASE("A noise record")
 {
     NoiseStats stats;
@@ -135,8 +189,19 @@ TEST_CASE("A noise record")
     stats.add(-115.0f);
     std::string expected =
         "{\"v\":1,\"type\":\"noise\",\"uptime_ms\":10000,\"freq_hz\":433775000,\"samples\":3,"
+        "\"read_mismatches\":0,\"skipped_samples\":0,"
         "\"min_dbm\":-120.00,\"mean_dbm\":-115.00,\"max_dbm\":-110.00}";
     CHECK(formatNoiseRecord(10000, 433775000, stats) == expected);
+}
+
+TEST_CASE("A noise record reports read mismatches and skipped samples")
+{
+    NoiseStats stats;
+    StableRead reading;
+    reading.mismatches = 3;
+    stats.addReading(reading);
+    std::string record = formatNoiseRecord(10000, 433775000, stats);
+    CHECK(record.find("\"read_mismatches\":3,\"skipped_samples\":1,") != std::string::npos);
 }
 
 TEST_CASE("A noise record with no samples has null values")
@@ -144,6 +209,7 @@ TEST_CASE("A noise record with no samples has null values")
     NoiseStats stats;
     std::string expected =
         "{\"v\":1,\"type\":\"noise\",\"uptime_ms\":10000,\"freq_hz\":433775000,\"samples\":0,"
+        "\"read_mismatches\":0,\"skipped_samples\":0,"
         "\"min_dbm\":null,\"mean_dbm\":null,\"max_dbm\":null}";
     CHECK(formatNoiseRecord(10000, 433775000, stats) == expected);
 }

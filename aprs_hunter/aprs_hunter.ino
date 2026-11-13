@@ -5,7 +5,8 @@
  * The sketch prints one JSON object per line over USB serial at 115200 baud:
  *   boot    - firmware version, display mode, and radio settings, at start-up
  *   rx      - every received packet, with signal metadata and the raw bytes
- *   noise   - a noise floor summary every 10 seconds
+ *   noise   - a noise floor summary every 10 seconds, with a count of
+ *             RSSI reads that were dropped because they changed mid-read
  *   display - a display mode change
  *   error   - radio, screen, or command errors
  *
@@ -29,9 +30,10 @@
 #include "double_reset.h"
 #include "oled_view.h"
 #include "records.h"
+#include "stable_read.h"
 #include "stations.h"
 
-#define FIRMWARE_VERSION "0.2.0"
+#define FIRMWARE_VERSION "0.3.0"
 
 // LilyGO T3 V1.6.1 radio pins (same on the 433 MHz and 868 MHz versions)
 #define LORA_SCK 5
@@ -59,6 +61,7 @@
 
 #define NOISE_SAMPLE_INTERVAL_MS 100
 #define NOISE_REPORT_INTERVAL_MS 10000
+#define RSSI_MAX_READS 4 // reads per noise sample to find two that agree
 #define LED_FLASH_MS 100
 
 // Display settings
@@ -101,6 +104,16 @@ class PreferencesFlagStore : public FlagStore {
   private:
     Preferences &prefs;
 };
+
+/**
+ * The radio's current RSSI. See stable_read.h for why one read is not enough.
+ */
+class RadioRssiSource : public RssiSource {
+  public:
+    float read() override { return radio.getRSSI(false); }
+};
+
+RadioRssiSource rssiSource;
 
 Preferences prefs;
 PreferencesFlagStore resetFlag(prefs);
@@ -359,7 +372,7 @@ void loop() {
 
   if (now - lastNoiseSampleMs >= NOISE_SAMPLE_INTERVAL_MS) {
     lastNoiseSampleMs = now;
-    noise.add(radio.getRSSI(false)); // current channel RSSI
+    noise.addReading(readStable(rssiSource, RSSI_MAX_READS)); // current channel RSSI
   }
   if (now - lastNoiseReportMs >= NOISE_REPORT_INTERVAL_MS) {
     lastNoiseReportMs = now;

@@ -18,12 +18,24 @@ void NoiseStats::add(float rssiDbm)
     samples++;
 }
 
+void NoiseStats::addReading(const StableRead &reading)
+{
+    mismatches += reading.mismatches;
+    if (reading.ok) {
+        add(reading.value);
+    } else {
+        skipped++;
+    }
+}
+
 void NoiseStats::reset()
 {
     samples = 0;
     minimum = 0.0f;
     maximum = 0.0f;
     sum = 0.0;
+    mismatches = 0;
+    skipped = 0;
 }
 
 uint32_t NoiseStats::count() const
@@ -44,6 +56,16 @@ float NoiseStats::maxDbm() const
 float NoiseStats::meanDbm() const
 {
     return samples == 0 ? 0.0f : static_cast<float>(sum / samples);
+}
+
+uint32_t NoiseStats::readMismatches() const
+{
+    return mismatches;
+}
+
+uint32_t NoiseStats::skippedSamples() const
+{
+    return skipped;
 }
 
 // ---- Encoding helpers ----
@@ -192,6 +214,8 @@ std::string formatNoiseRecord(uint32_t uptimeMs, uint32_t frequencyHz, const Noi
     appendUnsigned(out, "uptime_ms", uptimeMs);
     appendUnsigned(out, "freq_hz", frequencyHz);
     appendUnsigned(out, "samples", stats.count());
+    appendUnsigned(out, "read_mismatches", stats.readMismatches());
+    appendUnsigned(out, "skipped_samples", stats.skippedSamples());
     if (stats.count() == 0) {
         appendNull(out, "min_dbm");
         appendNull(out, "mean_dbm");
