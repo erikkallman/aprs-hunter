@@ -35,7 +35,7 @@
 #include "stable_read.h"
 #include "stations.h"
 
-#define FIRMWARE_VERSION "0.3.2"
+#define FIRMWARE_VERSION "0.3.3"
 
 // LilyGO T3 V1.6.1 radio pins (same on the 433 MHz and 868 MHz versions)
 #define LORA_SCK 5
@@ -68,6 +68,11 @@
 // skipped about 14% of samples. 8 reads skip about 1% and take well under
 // a millisecond.
 #define RSSI_MAX_READS 8
+// Random pause of 0 to this many microseconds before each RSSI read. Reads
+// at a fixed rhythm can line up with the register updates, so two reads in
+// a row tear the same way and pass the read check. Reads are about 97 us
+// apart without the pause.
+#define RSSI_READ_JITTER_US 100
 
 // Trace of the raw RSSI reads around a jump (see rssi_trace.h). Set
 // RSSI_TRACE_LIMIT to 0 to turn traces off.
@@ -134,6 +139,7 @@ bool haveNoiseMean = false;
 class RadioRssiSource : public RssiSource {
   public:
     float read() override {
+      delayMicroseconds(esp_random() % (RSSI_READ_JITTER_US + 1));
       float dbm = radio.getRSSI(false);
       rssiReads.add(dbm, micros());
       return dbm;

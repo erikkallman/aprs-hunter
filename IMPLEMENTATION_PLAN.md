@@ -299,6 +299,8 @@ the earlier 0.3.1 count of 2 in 25 covered its first 25 windows only):
   the same point in the same kind of change and give the same torn value.
   The extra microseconds in 0.3.2 break the lock. The traces cannot show
   this, because they come from 0.3.2 timing.
+- Next: firmware 0.3.3 adds a random pause before each read instead of
+  testing 0.3.1 again (see the decision on read jitter).
 
 ## Later stages (not planned in detail yet)
 
@@ -374,6 +376,17 @@ the earlier 0.3.1 count of 2 in 25 covered its first 25 windows only):
     the second are counted in the next trace.
   - Rejected: a median of 5 reads now. It fails if a torn value lasts 3
     reads, and nobody knows yet how long one lasts.
+- **Read jitter (2026-11-13).** Firmware 0.3.3 waits a random 0 to 100 µs
+  before each RSSI read. If the read rhythm can lock onto the register
+  updates, a random pause breaks the lock on purpose; 0.3.2 only broke
+  it by luck. 100 µs is about one read period, so the pause spans any
+  update period shorter than that. It costs at most 0.8 ms per sample.
+  - Chosen over running 0.3.1 again for an hour to prove the timing
+    cause. The user preferred a fix now. The cost: a low leak rate on
+    0.3.3 does not prove the cause, since 0.3.2 is already low.
+  - The pause is board timing, so no host test covers it. The board run
+    is the test: torn windows should stay near or below 0.9%, with no
+    rise in skipped samples.
 - **Minimal sonar for the idle screen.** The user wants to wear the board
   and asked for a minimalistic animation. A first draft had three busy idle
   views (noise graph, radar, station list); it was dropped for one calm
