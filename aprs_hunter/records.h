@@ -3,7 +3,8 @@
  *
  * Every record is one JSON object on one line, with a schema version "v"
  * and a "type": "rx" (a received packet), "noise" (a noise floor summary),
- * "boot" (start-up settings), or "error".
+ * "boot" (start-up settings), "display" (a display mode change),
+ * "rssi_trace" (the raw RSSI reads around a jump), or "error".
  */
 
 #ifndef RECORDS_H
@@ -14,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "rssi_trace.h"
 #include "stable_read.h"
 
 /**
@@ -103,6 +105,18 @@ std::string formatNoiseRecord(uint32_t uptimeMs, uint32_t frequencyHz, const Noi
 std::string formatBootRecord(const char *firmwareVersion, uint32_t uptimeMs, int resetReason,
                              const RadioSettings &radio, int radioStatus, const char *displayMode);
 std::string formatErrorRecord(uint32_t uptimeMs, const char *where, int code);
+
+/**
+ * The raw RSSI reads of one noise sample that jumped.
+ *
+ * @param referenceDbm the noise mean the reads were compared with
+ * @param reading what the stable read returned
+ * @param stableReads how many of the reads the stable read made; the rest
+ *        came after it
+ * @param missed traces refused since the last one printed
+ */
+std::string formatTraceRecord(uint32_t uptimeMs, float referenceDbm, const StableRead &reading,
+                              size_t stableReads, uint32_t missed, const TraceBuffer &reads);
 
 /**
  * A display mode change.

@@ -151,6 +151,26 @@ no -164 dBm minimums and no -37 dBm maximums.
 **Status**: In Progress (the check stops about 90% of torn values, not
 all of them; see the 2026-11-13 observations)
 
+## Stage 9: Trace RSSI reads around torn values
+**Goal**: Measure how long a torn value stays in the RSSI register, so the
+next fix rests on data instead of a second guess.
+**Success Criteria**: Host and Python tests pass; the firmware builds for
+the T3; on the board, `rssi_trace` records appear in the daily archive
+for samples with a read 6 dB or more from the last noise mean, at most
+one per second and 500 per boot.
+**Tests**:
+- The trace buffer keeps reads in order with their times and ignores
+  reads past its capacity.
+- A jump is a read at least the given distance above or below the
+  reference.
+- The gate allows the first trace, refuses traces inside the interval and
+  counts them, reports that count with the next trace it allows, and stops
+  at the per-boot limit.
+- The trace record lists the reads in dBm and their times from the first
+  read, and has `value_dbm` null when no two reads agreed.
+- The logger archives trace records and stores nothing for them.
+**Status**: In Progress
+
 ## Field observations (2026-11-09, first run on the board)
 
 - 4 boots and 2 double-reset mode switches worked as designed.
@@ -286,6 +306,23 @@ its minimum is -164, -132, -116, or -108 dBm or its maximum is -37, -69,
   - Matching the tear pattern in old logs. It only works at known bit
     boundaries. Old logs keep the -150 dBm limit, which catches the low side
     only.
+- **RSSI trace (2026-11-13).** Two reads in a row sometimes agree on a
+  torn value, so the SPI explanation was incomplete. Firmware 0.3.2 logs
+  the raw reads around each jump before any new fix:
+  - The reference is the mean of the last noise window, not the last
+    sample. One torn value that got through must not make the next good
+    sample look like a jump.
+  - A jump is 6 dB or more. In the window runs the floor stayed within
+    about 6 dB of the mean, and the torn values that got through (-108,
+    -116, -69 dBm) are more than 6 dB from it.
+  - After the stable read, the board makes 24 more reads back to back and
+    logs every read with its time in microseconds. If a torn value lasts
+    through all of them, the next step is reads spaced further apart.
+  - At most one trace per second and 500 per boot, so a real signal
+    cannot flood the serial line or the archive. Traces refused inside
+    the second are counted in the next trace.
+  - Rejected: a median of 5 reads now. It fails if a torn value lasts 3
+    reads, and nobody knows yet how long one lasts.
 - **Minimal sonar for the idle screen.** The user wants to wear the board
   and asked for a minimalistic animation. A first draft had three busy idle
   views (noise graph, radar, station list); it was dropped for one calm

@@ -214,6 +214,40 @@ TEST_CASE("A noise record with no samples has null values")
     CHECK(formatNoiseRecord(10000, 433775000, stats) == expected);
 }
 
+TEST_CASE("An RSSI trace record")
+{
+    StableRead reading;
+    reading.ok = true;
+    reading.value = -69.0f;
+    reading.mismatches = 1;
+    TraceBuffer reads;
+    reads.add(-101.0f, 4000);
+    reads.add(-69.0f, 4025);
+    reads.add(-69.0f, 4051);
+    std::string expected =
+        "{\"v\":1,\"type\":\"rssi_trace\",\"uptime_ms\":5000,\"ref_dbm\":-101.30,"
+        "\"ok\":true,\"value_dbm\":-69.00,\"stable_reads\":2,\"missed\":1,"
+        "\"reads_dbm\":[-101,-69,-69],\"t_us\":[0,25,51]}";
+    CHECK(formatTraceRecord(5000, -101.3f, reading, 2, 1, reads) == expected);
+}
+
+TEST_CASE("An RSSI trace record when no two reads agreed")
+{
+    TraceBuffer reads;
+    reads.add(-101.0f, 0);
+    std::string record = formatTraceRecord(5000, -101.3f, StableRead(), 1, 0, reads);
+    CHECK(record.find("\"ok\":false,\"value_dbm\":null,") != std::string::npos);
+}
+
+TEST_CASE("An RSSI trace record times reads across the microsecond counter wrapping")
+{
+    TraceBuffer reads;
+    reads.add(-101.0f, 0xFFFFFFF0u);
+    reads.add(-101.0f, 0x00000010u);
+    std::string record = formatTraceRecord(5000, -101.3f, StableRead(), 2, 0, reads);
+    CHECK(record.find("\"t_us\":[0,32]") != std::string::npos);
+}
+
 TEST_CASE("A boot record")
 {
     std::string expected =

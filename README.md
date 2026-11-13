@@ -39,7 +39,7 @@ using it and your radio hardware lawfully. See
    noise line every 10 seconds:
 
    ```
-   {"v":1,"type":"boot","fw":"0.3.1","uptime_ms":15,"reset_reason":1,"radio_status":0,"display":"animated","radio":{"freq_hz":433775000,"bw_hz":125000,"sf":12,"cr":5,"sync_word":18,"preamble":8}}
+   {"v":1,"type":"boot","fw":"0.3.2","uptime_ms":15,"reset_reason":1,"radio_status":0,"display":"animated","radio":{"freq_hz":433775000,"bw_hz":125000,"sf":12,"cr":5,"sync_word":18,"preamble":8}}
    {"v":1,"type":"noise","uptime_ms":10015,"freq_hz":433775000,"samples":94,"read_mismatches":0,"skipped_samples":0,"min_dbm":-109.00,"mean_dbm":-106.50,"max_dbm":-104.00}
    ```
 
@@ -309,6 +309,30 @@ The new `mode`, and the `source` that changed it: `serial` or
 `double_reset`. The logger keeps these in the archive but not in the
 database.
 
+### `rssi_trace`: the raw reads around a jump
+
+From firmware 0.3.2 on. These records exist to find out how long a torn
+value stays in the RSSI register (see Limits). When a read of a noise
+sample lands 6 dB or more from the mean of the last noise window, the
+board makes 24 more reads and prints every read of that sample:
+
+```
+{"v":1,"type":"rssi_trace","uptime_ms":61200,"ref_dbm":-101.32,"ok":true,"value_dbm":-69.00,"stable_reads":3,"missed":0,"reads_dbm":[-101,-69,-69,-69,-100,...],"t_us":[0,26,51,77,102,...]}
+```
+
+| Field | Meaning |
+|---|---|
+| `ref_dbm` | The mean of the last noise window, which the reads were compared with |
+| `ok`, `value_dbm` | What the read check returned. `value_dbm` is null when no two reads agreed |
+| `stable_reads` | How many of the reads the read check made. The rest came after it |
+| `missed` | Traces left out since the last one, because they came within a second of it |
+| `reads_dbm` | Every read, in order |
+| `t_us` | When each read finished, in microseconds after the first one |
+
+The board prints at most one trace per second and 500 per boot. To turn
+traces off, set `RSSI_TRACE_LIMIT` to 0 in the sketch. The logger keeps
+these records in the archive but not in the database.
+
 ### `error`
 
 `where` names the step that failed, and `code` is its result code. For radio
@@ -330,9 +354,9 @@ make test
 ```
 
 This runs the C++ tests on your computer, and the Python tests. The C++ tests
-cover the frame parser, the record format, the RSSI read check, and the
-display logic (screen
-choice, sonar geometry, station table, double reset). The drawing code
+cover the frame parser, the record format, the RSSI read check and trace,
+and the display logic (screen choice, sonar geometry, station table,
+double reset). The drawing code
 itself needs the board. The Python tests cover the logger, NMEA parsing and
 position tracking, the analysis functions, and the web server's API with a
 real server on a free port. The first run creates `.venv`.
@@ -351,7 +375,8 @@ real server on a free port. The first run creates `.venv`.
   -85 dBm. Firmware 0.3.0 drops most of these reads. On the board, the
   share of noise windows with a torn minimum or maximum fell from 78% to
   about 8%. The ones left pass because two reads in a row return the same
-  torn value. In older logs the GUI flags minimums below -150 dBm and
+  torn value. Firmware 0.3.2 logs the raw reads around each jump
+  (`rssi_trace`) to find out how long a torn value lasts. In older logs the GUI flags minimums below -150 dBm and
   leaves them out of the noise band, but the fake high readings stay in
   the maximum.
 - The sender's CrcOnPayload flag is not logged, so a packet sent without a

@@ -45,6 +45,11 @@ CHECKED_NOISE_LINE = json.dumps({
     "min_dbm": -108.0, "mean_dbm": -101.2, "max_dbm": -99.0,
 })
 ERROR_LINE = json.dumps({"v": 1, "type": "error", "uptime_ms": 5000, "where": "radio.readData", "code": -2})
+# Firmware 0.3.2 and later log the raw RSSI reads around a jump.
+TRACE_LINE = json.dumps({
+    "v": 1, "type": "rssi_trace", "uptime_ms": 5000, "ref_dbm": -101.3, "ok": True,
+    "value_dbm": -69.0, "stable_reads": 2, "missed": 0,
+    "reads_dbm": [-101, -69, -69], "t_us": [0, 25, 51]})
 
 
 class ParseLineTests(unittest.TestCase):
@@ -197,6 +202,18 @@ class HunterLogTests(unittest.TestCase):
 
     def test_packet_summary_names_the_source(self):
         self.assertIn("N0CALL-7", self.log.handle_line(rx_line(), HOST_UTC))
+
+    def test_trace_is_archived(self):
+        self.log.handle_line(TRACE_LINE, HOST_UTC)
+        line = (self.archive_dir / "2026-11-09.jsonl").read_text().splitlines()[0]
+        self.assertEqual(json.loads(line)["reads_dbm"], [-101, -69, -69])
+
+    def test_trace_is_not_stored_as_noise(self):
+        self.log.handle_line(TRACE_LINE, HOST_UTC)
+        self.assertEqual(self.scalar("SELECT count(*) FROM noise"), 0)
+
+    def test_trace_has_no_summary(self):
+        self.assertIsNone(self.log.handle_line(TRACE_LINE, HOST_UTC))
 
     def test_noise_has_no_summary(self):
         self.assertIsNone(self.log.handle_line(NOISE_LINE, HOST_UTC))

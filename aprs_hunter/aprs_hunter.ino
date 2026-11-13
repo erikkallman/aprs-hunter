@@ -5,8 +5,9 @@
  * The sketch prints one JSON object per line over USB serial at 115200 baud:
  *   boot    - firmware version, display mode, and radio settings, at start-up
  *   rx      - every received packet, with signal metadata and the raw bytes
- *   noise   - a noise floor summary every 10 seconds, with a count of
- *             RSSI reads that were dropped because they changed mid-read
+ *   noise   - a noise floor summary every 10 seconds, with counts of the
+ *             RSSI reads the read check dropped
+ *   rssi_trace - the raw RSSI reads around a jump, to study torn reads
  *   display - a display mode change
  *   error   - radio, screen, or command errors
  *
@@ -30,10 +31,11 @@
 #include "double_reset.h"
 #include "oled_view.h"
 #include "records.h"
+#include "rssi_trace.h"
 #include "stable_read.h"
 #include "stations.h"
 
-#define FIRMWARE_VERSION "0.3.1"
+#define FIRMWARE_VERSION "0.3.2"
 
 // LilyGO T3 V1.6.1 radio pins (same on the 433 MHz and 868 MHz versions)
 #define LORA_SCK 5
@@ -66,6 +68,16 @@
 // skipped about 14% of samples. 8 reads skip about 1% and take well under
 // a millisecond.
 #define RSSI_MAX_READS 8
+
+// Trace of the raw RSSI reads around a jump (see rssi_trace.h). Set
+// RSSI_TRACE_LIMIT to 0 to turn traces off.
+#define RSSI_TRACE_JUMP_DB 6.0f     // a read this far from the last noise mean starts a trace
+#define RSSI_TRACE_EXTRA_READS 24   // reads made after the stable read
+#define RSSI_TRACE_INTERVAL_MS 1000 // at most one trace per second
+#define RSSI_TRACE_LIMIT 500        // traces per boot
+static_assert(RSSI_MAX_READS + RSSI_TRACE_EXTRA_READS <= TRACE_CAPACITY,
+              "a trace must hold the stable read and the reads after it");
+
 #define LED_FLASH_MS 100
 
 // Display settings
@@ -109,12 +121,23 @@ class PreferencesFlagStore : public FlagStore {
     Preferences &prefs;
 };
 
+// The reads of the current noise sample, with their times.
+TraceBuffer rssiReads;
+TraceGate traceGate(RSSI_TRACE_INTERVAL_MS, RSSI_TRACE_LIMIT);
+float noiseMeanDbm = 0.0f; // mean of the last noise window with samples
+bool haveNoiseMean = false;
+
 /**
  * The radio's current RSSI. See stable_read.h for why one read is not enough.
+ * Every read is also kept in rssiReads.
  */
 class RadioRssiSource : public RssiSource {
   public:
-    float read() override { return radio.getRSSI(false); }
+    float read() override {
+      float dbm = radio.getRSSI(false);
+      rssiReads.add(dbm, micros());
+      return dbm;
+    }
 };
 
 RadioRssiSource rssiSource;
@@ -323,6 +346,25 @@ void updateDisplay(uint32_t now) {
   }
 }
 
+/**
+ * Take one noise sample. If a read lands far from the last noise mean, make
+ * more reads and print them all, so the log shows how long the jump lasted.
+ */
+void sampleNoise(uint32_t now) {
+  rssiReads.clear();
+  StableRead reading = readStable(rssiSource, RSSI_MAX_READS);
+  noise.addReading(reading);
+
+  size_t stableReads = rssiReads.size();
+  if (haveNoiseMean && hasJump(rssiReads, noiseMeanDbm, RSSI_TRACE_JUMP_DB) && traceGate.allow(now)) {
+    for (int i = 0; i < RSSI_TRACE_EXTRA_READS; i++) {
+      rssiSource.read();
+    }
+    printLine(formatTraceRecord(now, noiseMeanDbm, reading, stableReads, traceGate.missedBefore(),
+                                rssiReads));
+  }
+}
+
 void setup() {
   pinMode(BOARD_LED, OUTPUT);
   digitalWrite(BOARD_LED, LOW);
@@ -376,11 +418,15 @@ void loop() {
 
   if (now - lastNoiseSampleMs >= NOISE_SAMPLE_INTERVAL_MS) {
     lastNoiseSampleMs = now;
-    noise.addReading(readStable(rssiSource, RSSI_MAX_READS)); // current channel RSSI
+    sampleNoise(now);
   }
   if (now - lastNoiseReportMs >= NOISE_REPORT_INTERVAL_MS) {
     lastNoiseReportMs = now;
     printLine(formatNoiseRecord(now, APRS_FREQUENCY_HZ, noise));
+    if (noise.count() > 0) {
+      noiseMeanDbm = noise.meanDbm();
+      haveNoiseMean = true;
+    }
     noise.reset();
   }
 

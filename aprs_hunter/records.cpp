@@ -161,6 +161,37 @@ namespace
         out += '"';
     }
 
+    // Whole dBm values print without decimals: -101, not -101.00.
+    void appendDbmList(std::string &out, const char *key, const TraceBuffer &reads)
+    {
+        appendKey(out, key);
+        out += '[';
+        for (size_t i = 0; i < reads.size(); i++) {
+            char text[24];
+            std::snprintf(text, sizeof(text), "%g", static_cast<double>(reads.at(i).dbm));
+            if (i > 0) {
+                out += ',';
+            }
+            out += text;
+        }
+        out += ']';
+    }
+
+    // Microseconds since the first read. Unsigned subtraction stays right
+    // when the microsecond counter wraps.
+    void appendReadTimes(std::string &out, const char *key, const TraceBuffer &reads)
+    {
+        appendKey(out, key);
+        out += '[';
+        for (size_t i = 0; i < reads.size(); i++) {
+            if (i > 0) {
+                out += ',';
+            }
+            out += std::to_string(static_cast<uint32_t>(reads.at(i).us - reads.at(0).us));
+        }
+        out += ']';
+    }
+
     std::string recordStart(const char *type)
     {
         return std::string("{\"v\":1,\"type\":\"") + type + "\"";
@@ -254,6 +285,26 @@ std::string formatErrorRecord(uint32_t uptimeMs, const char *where, int code)
     appendUnsigned(out, "uptime_ms", uptimeMs);
     appendString(out, "where", where);
     appendSigned(out, "code", code);
+    out += '}';
+    return out;
+}
+
+std::string formatTraceRecord(uint32_t uptimeMs, float referenceDbm, const StableRead &reading,
+                              size_t stableReads, uint32_t missed, const TraceBuffer &reads)
+{
+    std::string out = recordStart("rssi_trace");
+    appendUnsigned(out, "uptime_ms", uptimeMs);
+    appendFloat(out, "ref_dbm", referenceDbm);
+    appendBool(out, "ok", reading.ok);
+    if (reading.ok) {
+        appendFloat(out, "value_dbm", reading.value);
+    } else {
+        appendNull(out, "value_dbm");
+    }
+    appendUnsigned(out, "stable_reads", stableReads);
+    appendUnsigned(out, "missed", missed);
+    appendDbmList(out, "reads_dbm", reads);
+    appendReadTimes(out, "t_us", reads);
     out += '}';
     return out;
 }
