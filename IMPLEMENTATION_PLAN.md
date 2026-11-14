@@ -202,8 +202,27 @@ minimum of -164, -132, -116, or -108 dBm or a maximum of -37, -69, or
 - The logger stores the count, stores NULL for older firmware, and adds
   the column to an existing database. The noise API sums it per chart
   point and per time range.
-**Status**: In Progress (firmware 0.3.5 on branch `confirm-far-rssi-reads`;
-host tests, Python tests, and the T3 build pass; not yet run on the board)
+**Status**: Complete (firmware 0.3.5 on branch `confirm-far-rssi-reads`;
+host tests, Python tests, and the T3 build pass. Board run 2026-11-13:
+no torn window in 1560. The spacing experiment of 2026-11-14 (Stage 11)
+shows that the confirm read is what stops them.)
+
+## Stage 11: Prove the confirm read with a forced bad spacing
+**Goal**: A board run that shows torn windows at a read spacing near
+96.0 µs with the confirm read off, and none with it on. This stage lives
+on branch `rssi-spacing-experiment` and is not meant to merge.
+**Success Criteria**: Host tests pass; the firmware builds for the T3; on
+the board, with the floor near -100 dBm, at least one padded phase with
+the confirm read off shows torn windows well above 5%, and the same pad
+with the confirm read on shows none and counts unconfirmed samples.
+**Tests**:
+- The phase schedule starts with no pad and the confirm read off, holds
+  each phase for its number of windows, runs every pad off then on, and
+  starts again after the last phase.
+- A pad in nanoseconds converts to CPU cycles.
+- A record gains `pad_ns` and `confirm` before its closing brace.
+**Status**: Complete (board run 2026-11-13 20:09 to 2026-11-14 06:31 UTC;
+see the field observations of 2026-11-14)
 
 ## Field observations (2026-11-09, first run on the board)
 
@@ -391,6 +410,57 @@ Audit of the read spacing (2026-11-13, see
 - Not confirmed: the 0.3.1 spacing, and about 7% of torn pairs that sit
   half a period off the clock.
 
+Firmware 0.3.5, 15:24 to 20:01 UTC (1560 windows, branch
+`confirm-far-rssi-reads`, built in Arduino IDE):
+
+- No torn window at any floor: 0 of 488 with the floor between -101.5 and
+  -99.5 dBm, 0 of 754 between -104 and -101.5 dBm. Skipped samples 1.4 to
+  2.9%.
+- This does not prove the confirm read. The build reads every 94.9 µs
+  (gaps of 95 µs 72%, 94 µs 6%), against 96.87 µs on 0.3.2. That is 1.1 µs
+  clear of 96.0 µs, so it would barely leak without the confirm read. The
+  rebuild alone moved the spacing by 1.9 µs, which is the fragility the
+  audit warned about.
+- The confirm read ran four times. It kept two real peaks (-98 and
+  -95 dBm) and rejected two values. One rejection was false: two reads
+  agreed on a real -109 dBm after the floor dropped, and the confirm read
+  itself was torn (-116 dBm). The other came after the 500-trace limit and
+  cannot be inspected. A false rejection costs one sample and lets nothing
+  bad through; about 1 confirm read in 30 is torn.
+- The pause: three confirm reads came 97, 101, and 101 µs after the read
+  before them, against 95 µs normally. Too few to pin the pause down.
+- The floor dropped about 6 dB from 15:50 to 16:40 UTC, cause unknown.
+
+## Field observations (2026-11-14, spacing experiment)
+
+Firmware 0.3.5-exp1, 2026-11-13 20:09 to 2026-11-14 06:31 UTC (3731
+windows, about 15 cycles, no restart, branch `rssi-spacing-experiment`).
+Torn windows use the strict rule, with the floor between -101.5 and
+-99.5 dBm:
+
+| Pad | Spacing | Confirm off, torn | Confirm on, torn | Unconfirmed samples (on) |
+|---|---|---|---|---|
+| 0 ns | 95.1 µs | 2 of 129 (1.6%) | 0 of 90 | 3 |
+| 900 ns | 96.0 µs | 14 of 94 (14.9%) | 0 of 77 | 56 |
+| 1100 ns | 96.1 µs | 19 of 120 (15.8%) | 0 of 114 | 49 |
+| 1300 ns | 96.3 µs | 5 of 100 (5.0%) | 0 of 72 | 21 |
+
+- The confirm read works. Off: 40 of 443 windows torn. On: 0 of 353.
+  At all floors: 95 torn windows off, 0 on.
+- The spacing column is the main gap in the traces, from how often a gap
+  reads one microsecond longer (`micros()` drops the fraction). The most
+  common gap is 95 µs at pad 0 (78%) and 96 µs at every pad above (54 to
+  71%). The values are rough, to about 0.1 µs.
+- The leak follows the 8 µs clock: it peaks near 96.0 µs and drops at
+  96.3 µs. It is smaller than the model, which gives about 42% at 96.0 µs
+  and 29% at 96.2 µs. A likely cause, not tested: about 10 to 15% of
+  gaps run 98 to 101 µs, and each long gap breaks a run of same-slot
+  reads. The model has no jitter.
+- The confirm read costs little. Skipped samples stay at 1.0 to 1.2% in
+  every phase, and unconfirmed samples come to at most 0.12 per window.
+  At pad 0, 3 rejections in 480 windows: about the false-rejection rate.
+- Not settled: the half-period torn pairs and the confirm pause length.
+
 ## Later stages (not planned in detail yet)
 
 - Portable: SD card logging, battery level, lower CPU clock in notify-only
@@ -520,8 +590,28 @@ Audit of the read spacing (2026-11-13, see
   - Rejected for now: a mean read gap in each noise record. With the
     confirm read the spacing no longer decides the result, and the traces
     already carry read times.
-  - Not done: a board run at 96.0 µs on purpose, which would prove the
-    model (it predicts torn windows near 40% without the confirm read).
+  - Done later: a board run at 96.0 µs on purpose (see the spacing
+    experiment below). It gave about 15% torn windows without the
+    confirm read, not 40%, and none with it.
+- **Spacing experiment (2026-11-13).** Firmware 0.3.5 does not leak on
+  its own, so a clean run cannot show that the confirm read works.
+  Firmware 0.3.5-exp1 pads every read to bring the spacing to about
+  96.0 µs, where the model predicts torn windows near 40%.
+  - The board steps through the phases by itself: pads of 0, 900, 1100,
+    and 1300 ns, each for 5 minutes with the confirm read off and 5 with
+    it on, 40 minutes per cycle. Chosen over a serial command, because the
+    logger holds the serial port and a person would have to switch phases
+    by hand.
+  - Phases alternate, so a drift of the noise floor hits all of them
+    alike. A run of two firmwares one after the other does not have that.
+  - Three pads near the target, because the pause loop adds a little time
+    of its own and a spacing 0.4 µs off 96.0 µs already leaks four times
+    less.
+  - Every noise and trace record carries `pad_ns` and `confirm`, so the
+    log explains itself. The logger keeps them in the archive only.
+  - Traces: one per 3 seconds and 4000 per boot, so every phase has
+    traces to measure its real spacing from.
+  - The pad of 0 ns is the control: it should match firmware 0.3.5.
 - **Minimal sonar for the idle screen.** The user wants to wear the board
   and asked for a minimalistic animation. A first draft had three busy idle
   views (noise graph, radar, station list); it was dropped for one calm
